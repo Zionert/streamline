@@ -22,6 +22,7 @@ model User {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   refreshTokens RefreshToken[]
+  memberships   BoardMember[]
 }
 
 /// Opaque refresh tokens; only the SHA-256 hash of the token is stored.
@@ -38,5 +39,38 @@ model RefreshToken {
   replaces     RefreshToken? @relation("RefreshTokenRotation")
   createdAt    DateTime      @default(now())
 
+  @@index([userId])
+}
+
+/// Role of a user on a board; permissions per role are defined in @streamline/shared.
+enum BoardRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+model Board {
+  id        String        @id @default(cuid())
+  name      String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  members   BoardMember[]
+}
+
+/// Membership of a user in a board. Each board has exactly one OWNER, which is additionally
+/// enforced by the partial unique index "BoardMember_one_owner_per_board" (defined in the
+/// migration SQL, as Prisma cannot express partial indexes).
+model BoardMember {
+  id        String    @id @default(cuid())
+  boardId   String
+  board     Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      BoardRole
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([boardId, userId])
   @@index([userId])
 }

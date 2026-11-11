@@ -1,5 +1,6 @@
-import { Prisma, type User } from '../generated/prisma/client.js';
+import type { User } from '../generated/prisma/client.js';
 import type { DbClient } from './db.js';
+import { isPrismaError, PRISMA_ERROR } from './prisma-errors.js';
 
 export type { User };
 
@@ -16,8 +17,6 @@ export interface UserRepository {
   create(data: CreateUserData): Promise<User | null>;
 }
 
-const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
-
 export function createUserRepository(db: DbClient): UserRepository {
   return {
     findById(id) {
@@ -32,10 +31,7 @@ export function createUserRepository(db: DbClient): UserRepository {
       try {
         return await db.user.create({ data });
       } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === UNIQUE_CONSTRAINT_VIOLATION
-        ) {
+        if (isPrismaError(err, PRISMA_ERROR.UNIQUE_CONSTRAINT_VIOLATION)) {
           return null;
         }
         throw err;
