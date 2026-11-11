@@ -6,5 +6,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src", "vitest.config.ts"]
+  "include": ["src", "test-utils", "bench", "vitest.config.ts"]
 }

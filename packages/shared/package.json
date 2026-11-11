@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bench": "pnpm build && node bench/rank.bench.ts"
   },
   "dependencies": {
     "zod": "4.6.7"
