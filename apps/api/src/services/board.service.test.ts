@@ -1,4 +1,4 @@
-import type { BoardRole } from '@streamline/shared';
+import { isValidRank, type BoardRole } from '@streamline/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ConflictError, ForbiddenError, NotFoundError } from '../errors/app-error.js';
@@ -10,7 +10,7 @@ import type {
 import type { BoardRecord, BoardRepository } from '../repositories/board.repository.js';
 import type { User } from '../repositories/user.repository.js';
 import { createBoardAccessService, type BoardMembership } from './board-access.service.js';
-import { createBoardService } from './board.service.js';
+import { createBoardService, defaultBoardColumns } from './board.service.js';
 
 const now = new Date('2026-11-11T10:00:00.000Z');
 
@@ -83,6 +83,27 @@ describe('BoardService', () => {
       updatedAt: now.toISOString(),
       role: 'OWNER',
     });
+  });
+
+  it('creates the board with the four default columns in order', async () => {
+    const createWithOwner = vi.fn(() => Promise.resolve(boardRecord));
+
+    await buildService({ boards: fakeBoards({ createWithOwner }) }).create('user-1', {
+      name: 'Roadmap',
+    });
+
+    expect(createWithOwner).toHaveBeenCalledWith('Roadmap', 'user-1', expect.any(Array));
+    const columns = defaultBoardColumns();
+    expect(columns.map(({ title, category }) => ({ title, category }))).toEqual([
+      { title: 'Backlog', category: 'BACKLOG' },
+      { title: 'To Do', category: 'TODO' },
+      { title: 'In Progress', category: 'IN_PROGRESS' },
+      { title: 'Done', category: 'DONE' },
+    ]);
+    const ranks = columns.map((column) => column.rank);
+    expect(ranks.every((rank) => isValidRank(rank))).toBe(true);
+    expect([...ranks].sort()).toEqual(ranks);
+    expect(new Set(ranks).size).toBe(ranks.length);
   });
 
   it('re-checks the role even when called without the route guard', async () => {

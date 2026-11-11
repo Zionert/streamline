@@ -1,4 +1,4 @@
-import { errorResponseSchema } from '@streamline/shared';
+import { errorResponseSchema, RankError, type RankErrorCode } from '@streamline/shared';
 import express from 'express';
 import { pino } from 'pino';
 import { pinoHttp } from 'pino-http';
@@ -53,6 +53,17 @@ describe('errorHandler', () => {
     expect(status).toBe(400);
     expect(body.error.code).toBe('VALIDATION_ERROR');
     expect(Array.isArray(body.error.details)).toBe(true);
+  });
+
+  it.each<[RankErrorCode, number]>([
+    ['INVALID_RANK', 400],
+    ['INVALID_ARGUMENT', 400],
+    ['INVALID_RANK_ORDER', 409],
+  ])('maps RankError %s to %i with its code', async (code, expectedStatus) => {
+    const { status, body } = await getError(new RankError(code, 'Bad rank'));
+
+    expect(status).toBe(expectedStatus);
+    expect(body.error).toEqual({ code, message: 'Bad rank' });
   });
 
   it('hides internals of unexpected errors behind a generic 500', async () => {

@@ -1,6 +1,8 @@
 import {
   BOARD_ERROR_CODES,
   canLeaveBoard,
+  DEFAULT_BOARD_COLUMNS,
+  rankSequenceBetween,
   type AddBoardMemberInput,
   type Board,
   type BoardMember,
@@ -15,7 +17,11 @@ import type {
   BoardMemberRepository,
   BoardMemberWithUser,
 } from '../repositories/board-member.repository.js';
-import type { BoardRecord, BoardRepository } from '../repositories/board.repository.js';
+import type {
+  BoardRecord,
+  BoardRepository,
+  InitialColumnData,
+} from '../repositories/board.repository.js';
 import type { UserRepository } from '../repositories/user.repository.js';
 import {
   assertBoardPermission,
@@ -29,7 +35,7 @@ import {
  */
 export interface BoardService {
   listForUser(userId: string): Promise<Board[]>;
-  /** Creates a board owned by the user. */
+  /** Creates a board owned by the user, with the default columns. */
   create(userId: string, input: CreateBoardInput): Promise<Board>;
   get(membership: BoardMembership): Promise<Board>;
   rename(membership: BoardMembership, input: UpdateBoardInput): Promise<Board>;
@@ -54,6 +60,18 @@ export interface BoardServiceDependencies {
 }
 
 const MEMBER_NOT_FOUND_MESSAGE = 'Member not found';
+
+/** The default columns of a new board with evenly spread ranks. */
+export function defaultBoardColumns(): InitialColumnData[] {
+  const ranks = rankSequenceBetween(null, null, DEFAULT_BOARD_COLUMNS.length);
+  return DEFAULT_BOARD_COLUMNS.map(({ title, category }, index) => {
+    const rank = ranks[index];
+    if (rank === undefined) {
+      throw new Error('rankSequenceBetween returned fewer keys than requested');
+    }
+    return { title, category, rank };
+  });
+}
 
 export function toBoard(board: BoardRecord, role: BoardRole): Board {
   return {
@@ -103,7 +121,8 @@ export function createBoardService({
     },
 
     async create(userId, { name }) {
-      return toBoard(await boards.createWithOwner(name, userId), 'OWNER');
+      const board = await boards.createWithOwner(name, userId, defaultBoardColumns());
+      return toBoard(board, 'OWNER');
     },
 
     async get(membership) {
