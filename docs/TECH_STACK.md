@@ -73,14 +73,16 @@ wystarczy `pnpm -r`.
 - Stałe nazw zdarzeń WebSocket (`card:moved`, `column:created`, …) i typy ich danych.
 
 ## 5. Model danych (wstępny)
-- `User` (id, email, passwordHash, name, avatarUrl)
+- `User` (id, email, passwordHash, name, avatarUrl) — ✅ M1
+- `RefreshToken` (userId, tokenHash, expiresAt, revokedAt, replacedById) — ✅ M1
 - `Board` (id, title, ownerId)
-- `BoardMember` (boardId, userId, **role: OWNER | ADMIN | MEMBER | VIEWER**) — system uprawnień
-- `Column` (id, boardId, title, **rank**, wipLimit?) — limit WIP zgodny z metodą Kanban
-- `Card` (id, columnId, title, description, **rank**, assigneeId?, dueDate?, priority)
+- `BoardMember` (boardId, userId, **role: OWNER | ADMIN | MEMBER | VIEWER**) — system uprawnień (`docs/REQUIREMENTS.md`, sekcja 2)
+- `Column` (id, boardId, title, **rank**, **category: BACKLOG | TODO | IN_PROGRESS | DONE**, wipLimit?, wipStrict) — kategoria jest podstawą analityki
+- `Card` (id, columnId, title, description, **rank**, assigneeId?, dueDate?, priority, createdAt)
+- `CardTransition` (id, cardId, boardId, fromColumnId?, toColumnId, movedById, movedAt) — każde przejście karty; źródło danych analityki (ADR-020)
 - `Label`, `CardLabel`, `Comment`
 - `ActivityLog` (kto, co, kiedy) — historia zmian tablicy
-- `RefreshToken` (userId, tokenHash, expiresAt, revokedAt)
+- `AiUsage` (userId, boardId, kind, createdAt) — ewidencja i limit zapytań asystenta AI (opcjonalnie, ADR-021)
 
 ## 6. Testowanie
 

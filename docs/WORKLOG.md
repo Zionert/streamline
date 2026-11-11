@@ -2,6 +2,13 @@
 
 Najnowsze wpisy na górze.
 
+## 2026-11-11 — Nazar — Wymagania i rozszerzony plan prac
+- Nowy dokument `docs/REQUIREMENTS.md`: macierz uprawnień ról, wymagania funkcjonalne (MoSCoW) i niefunkcjonalne, zakres wyłączony.
+- Wyróżnik projektu: analityka przepływu (lead/cycle time, przepustowość, CFD, aging WIP, prognoza Monte Carlo, prawo Little'a) oraz obecność użytkowników w czasie rzeczywistym.
+- Opcjonalny asystent AI (podział zadania, kryteria akceptacji, podsumowanie tygodnia) za adapterem dostawcy.
+- Model danych: kategoria i limit WIP kolumny, `CardTransition`, `AiUsage`; ADR-020, ADR-021.
+- Plan prac rozszerzony do M9 (`docs/WORKFLOW.md`, sekcja 7); M2 podzielony na M2a–M2d.
+
 ## 2026-11-11 — Nazar — M1b: uwierzytelnianie (frontend)
 - `authSlice` (Zustand) z access tokenem wyłącznie w pamięci; klient axios z interceptorem (401 → `/auth/refresh` → ponowienie, single-flight, jedno opóźnione ponowienie po `REFRESH_TOKEN_ROTATED`, wylogowanie po porażce); `sessionEpoch` odrzuca nieaktualne wyniki odświeżania.
 - Strony `/login`, `/register` (react-hook-form + schematy `shared`), `ProtectedRoute`, `GuestRoute`, `AuthBootstrap` (przywracanie sesji, odporne na StrictMode), `AppLayout` z przyciskiem wylogowania, walidacja adresu przekierowania.
