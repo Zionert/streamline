@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routes } from '@/routes';
+import { resetAuthStore, useAuthStore } from '@/stores/auth';
+import { sessionWith } from '@/test/fixtures';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -17,6 +19,11 @@ function renderAt(path: string) {
 }
 
 describe('HomePage', () => {
+  beforeEach(() => {
+    resetAuthStore();
+    useAuthStore.getState().setSession(sessionWith('token-1'));
+  });
+
   it('renders the landing page on "/" and reports a healthy API', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'ok' }));
     vi.stubGlobal('fetch', fetchMock);
