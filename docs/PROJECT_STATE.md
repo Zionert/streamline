@@ -3,10 +3,10 @@
 _Aktualizacja: 2026-11-11_
 
 ## W skrócie
-M0 (szkielet monorepo) jest zmergowany do `main` (PR #1, commit `fc29bb0`). M1a (uwierzytelnianie po stronie backendu) jest zaimplementowane i zatwierdzone w przeglądzie kodu (2 rundy); zmiany są na gałęzi `feat/m1a-auth-backend` i nie są jeszcze zacommitowane. Frontend nie ma jeszcze logowania (M1b).
+M0 (szkielet monorepo) i M1a (uwierzytelnianie backendu) są zmergowane do `main` (PR #1, commit `fc29bb0`; PR #2, merge `fc59c7e`, commit `e741512`). M1b (uwierzytelnianie we frontendzie) jest zaimplementowane i zatwierdzone w przeglądzie kodu (2 rundy); zmiany są na gałęzi `feat/m1b-auth-frontend` i nie są jeszcze zacommitowane.
 
 ## Gotowe
-- Dokumentacja stosu, organizacji pracy i decyzji (ADR-001–015).
+- Dokumentacja stosu, organizacji pracy i decyzji (ADR-001–019).
 - M0: monorepo pnpm, API Express 5 z `GET /health`, frontend Vite/React/Tailwind/shadcn, pakiet `shared`, `docker-compose.yml` (PostgreSQL 18), ESLint/Prettier/Husky/lint-staged, Vitest, GitHub Actions CI. `@hello-pangea/dnd` 18.0.1 potwierdzony z React 19.3.1.
 - M1a (backend):
   - modele `User`, `RefreshToken` i migracja `20261111010926_auth_users_refresh_tokens` (`docs/DATABASE.md`),
@@ -16,20 +16,24 @@ M0 (szkielet monorepo) jest zmergowany do `main` (PR #1, commit `fc29bb0`). M1a 
   - schematy Zod w `packages/shared` (`registerSchema`, `loginSchema`, `emailSchema`, `passwordSchema`, `publicUserSchema`, `authResponseSchema`, `meResponseSchema`),
   - `createApp({ config, logger, db })` z ręcznym wstrzykiwaniem zależności,
   - testy integracyjne Supertest na osobnej bazie `streamline_test` (ADR-015).
-- Sprawdzone lokalnie: `lint`, `typecheck`, `test` (shared 28, api 77, web 5).
+- M1b (frontend, `apps/web`):
+  - `authSlice` (Zustand, `src/stores/auth.ts`): `user`, `accessToken` (tylko w pamięci), `status`, `sessionEpoch`,
+  - klient axios (`src/lib/api.ts`): nagłówek Bearer, odświeżanie po 401 (single-flight), jedno opóźnione ponowienie po `REFRESH_TOKEN_ROTATED`, wylogowanie przy ostatecznej porażce (ADR-016, ADR-017),
+  - strony `/login` i `/register` (react-hook-form + `zodResolver` ze schematami `loginSchema`/`registerSchema` z `shared`, komponenty shadcn/ui),
+  - `ProtectedRoute` (przekierowanie do `/login` ze stanem `from`), `GuestRoute`, `AuthBootstrap` (przywracanie sesji przez `/auth/refresh`, odporne na StrictMode — ADR-018), przycisk „Log out” w `AppLayout`,
+  - testy RTL z ręcznym adapterem axios zamiast MSW (ADR-019).
+- Sprawdzone lokalnie: `lint`, `typecheck`, `test` (shared 28, api 77, web 77), `format:check`, `build` web (ostrzeżenie: jeden fragment 537 kB).
 
 ## W toku
 - —
 
 ## Kolejne kroki
-1. Commit i PR dla M1a (gałąź `feat/m1a-auth-backend`); weryfikacja CI z `DATABASE_URL_TEST`.
-2. M1b: frontend uwierzytelniania (strony `/login`, `/register`, `authSlice`, klient axios, trasy chronione).
-3. Założenie tablicy GitHub Projects i issues dla M0–M2.
+1. Commit i PR dla M1b (gałąź `feat/m1b-auth-frontend`).
+2. Założenie tablicy GitHub Projects i issues dla M0–M2.
+3. M2: tablice (modele `Board`, `Column`, `Card`, LexoRank, endpointy REST, widok tablicy).
 
-### Uwagi do M1b
-- Access token trzymać wyłącznie w pamięci (stan Zustand), nigdy w `localStorage`.
-- Interceptor axios: jedno odświeżenie naraz (single-flight) dla równoległych żądań 401.
-- Przy odpowiedzi 401 `REFRESH_TOKEN_ROTATED` krótko poczekać i ponowić `/auth/refresh` jeden raz; jeśli znów się nie powiedzie — traktować użytkownika jako wylogowanego.
+### Uwagi dla kolejnych etapów
+- Żądania chronione wykonywać przez instancję `api` z `apps/web/src/lib/api.ts` (obsługuje Bearer i odświeżanie); żądań do `/auth/*` nie opakowywać własnym odświeżaniem.
 - Przeglądarka wywołuje `/api/auth/*` (proxy Vite); ciasteczko ma `Path=/api/auth`.
 
 ## Uruchamianie
@@ -46,6 +50,11 @@ Kontrole: `pnpm lint && pnpm typecheck && pnpm test`, `pnpm format:check`, `pnpm
 Zmienne środowiskowe uwierzytelniania (`apps/api/.env.example`): `JWT_ACCESS_SECRET`, `ACCESS_TOKEN_TTL_SECONDS` (900), `REFRESH_TOKEN_TTL_SECONDS` (604800), `REFRESH_REUSE_GRACE_SECONDS` (30), `REFRESH_COOKIE_PATH` (`/api/auth`), `BCRYPT_COST` (12), `AUTH_RATE_LIMIT_WINDOW_MS` (900000), `AUTH_RATE_LIMIT_MAX` (100), `AUTH_CREDENTIALS_RATE_LIMIT_MAX` (10), opcjonalnie `DATABASE_URL_TEST`.
 
 ## Znane problemy / dług techniczny
+- Frontend: odświeżenie może rozpocząć się w trakcie `POST /auth/logout` (równoległe 401 w ciągu ok. 50 ms) i zrotować ciasteczko, zanim wylogowanie je unieważni; możliwe wzmocnienie: flaga „wylogowywanie” powodująca odrzucenie `refreshSession`.
+- Frontend: `login`/`register` nie zwiększają `sessionEpoch` — odświeżenie w toku podczas logowania mogłoby nadpisać lub wyczyścić nową sesję (w obecnym UI nieosiągalne).
+- Kody błędów (np. `REFRESH_TOKEN_ROTATED`) są zduplikowane w `apps/api` i `apps/web` — przenieść do `packages/shared`.
+- Brak podziału kodu (jeden fragment 537 kB) — leniwe ładowanie tras w późniejszym etapie.
+- Podwójna nawigacja po zalogowaniu/wylogowaniu (nieszkodliwa).
 - Nazwy `WS_EVENTS` są robocze — do zatwierdzenia z funkcjonalnościami.
 - `error-handler` mapuje wszystkie błędy 4xx parsera ciała na `BAD_REQUEST`; brak zabezpieczenia `headersSent`.
 - Krok `prisma generate` w CI jest zbędny (robi to `postinstall`).
@@ -59,5 +68,5 @@ Zmienne środowiskowe uwierzytelniania (`apps/api/.env.example`): `JWT_ACCESS_SE
 - Okno łaski opóźnia wykrycie kradzieży, gdy atakujący odświeży token przed klientem (ADR-013).
 
 ## Przeszkody / otwarte pytania
-- CI nie było jeszcze uruchomione na GitHub; sprawdzić tagi akcji (`checkout@v7`, `pnpm/action-setup@v6`, `setup-node@v7`) oraz działanie `DATABASE_URL_TEST` z usługą PostgreSQL.
+- Nie potwierdzono przebiegu CI na GitHub (w tym `DATABASE_URL_TEST` z usługą PostgreSQL); sprawdzić tagi akcji (`checkout@v7`, `pnpm/action-setup@v6`, `setup-node@v7`) oraz działanie `DATABASE_URL_TEST` z usługą PostgreSQL.
 - `@hello-pangea/dnd`: ostatnie wydanie luty 2025 — dnd-kit jako plan awaryjny.

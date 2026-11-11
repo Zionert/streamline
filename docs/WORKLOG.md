@@ -2,6 +2,14 @@
 
 Najnowsze wpisy na górze.
 
+## 2026-11-11 — Nazar — M1b: uwierzytelnianie (frontend)
+- `authSlice` (Zustand) z access tokenem wyłącznie w pamięci; klient axios z interceptorem (401 → `/auth/refresh` → ponowienie, single-flight, jedno opóźnione ponowienie po `REFRESH_TOKEN_ROTATED`, wylogowanie po porażce); `sessionEpoch` odrzuca nieaktualne wyniki odświeżania.
+- Strony `/login`, `/register` (react-hook-form + schematy `shared`), `ProtectedRoute`, `GuestRoute`, `AuthBootstrap` (przywracanie sesji, odporne na StrictMode), `AppLayout` z przyciskiem wylogowania, walidacja adresu przekierowania.
+- Nowe zależności `apps/web`: zustand, axios, react-hook-form, @hookform/resolvers, zod. Testy z ręcznym adapterem axios (bez MSW). Testy: shared 28, api 77, web 77.
+- Dokumentacja: ADR-016–019, ARCHITECTURE, TECH_STACK, PROJECT_STATE (M1a oznaczone jako zmergowane), notatki do rozdziałów 3, 4, 5.
+- Przegląd kodu: zatwierdzony po 2 rundach (runda 1: wylogowanie w trakcie odświeżania — naprawione).
+- Pliki: `apps/web/src/{stores,lib,features/auth,components/layout,components/ui,test,routes.tsx,pages}`, `apps/web/package.json`, `pnpm-lock.yaml`, `docs/*`.
+
 ## 2026-11-11 — Nazar — M1a: uwierzytelnianie (backend)
 - Modele `User` i `RefreshToken`, migracja `20261111010926_auth_users_refresh_tokens`.
 - Endpointy `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`; bcryptjs, JWT (jose), refresh token z rotacją i wykrywaniem ponownego użycia (okno łaski), `requireAuth`, ograniczanie liczby żądań, redakcja logów.

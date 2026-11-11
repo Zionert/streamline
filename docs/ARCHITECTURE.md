@@ -1,6 +1,6 @@
 # Architektura
 
-Stan: M1a — szkielet i uwierzytelnianie backendu. Uzasadnienia decyzji: `docs/DECISIONS.md`.
+Stan: M1b — szkielet oraz uwierzytelnianie (backend i frontend). Uzasadnienia decyzji: `docs/DECISIONS.md`.
 
 ## Moduły
 
@@ -21,7 +21,13 @@ Schematy Zod (`healthResponseSchema`, `errorResponseSchema`, uwierzytelnianie w 
 - `routes/`, `controllers/`, `services/`, `repositories/` (`db.ts`, `user`, `refresh-token`), serwisy `auth`, `token` (jose, SHA-256), `password` (bcryptjs), middleware `require-auth` i `rate-limit`, `errors/app-error.ts`, `middleware/`.
 
 ### apps/web
-Jedna trasa `/` (`HomePage` z przyciskiem shadcn/ui), hook `useApiHealth` walidujący odpowiedź schematem ze `shared`. Tailwind 4 (`@tailwindcss/vite`), shadcn/ui (new-york, neutral). Serwer deweloperski Vite przekazuje `/api` do API.
+Tailwind 4 (`@tailwindcss/vite`), shadcn/ui (new-york, neutral; `input`, `label`, `card` pisane ręcznie w tym samym stylu). Serwer deweloperski Vite przekazuje `/api` do API.
+- `routes.tsx` — drzewo tras: `AuthBootstrap` (układ główny) → `GuestRoute` (`/login`, `/register`) oraz `ProtectedRoute` → `AppLayout` → `/` (`HomePage`).
+- `stores/auth.ts` — Zustand: `user`, `accessToken` (tylko pamięć), `status` (`idle` | `loading` | `authenticated` | `unauthenticated`), `sessionEpoch` (zwiększany przy `clearSession`).
+- `lib/api.ts` — `createApiClient({ rotatedRetryDelayMs, sleep, adapter })` zwraca `{ api, refreshSession, waitForPendingRefresh }`; `lib/api-error.ts` — `getApiErrorInfo` (schemat `errorResponseSchema`).
+- `features/auth/` — `authApi.ts` (login, register, logout), `session.ts` (`restoreSession`), `useSessionRestore.ts`, `AuthBootstrap`, `ProtectedRoute`, `GuestRoute`, `LoginPage`, `RegisterPage`, `AuthCard`, `AuthField`, `authErrorMessage.ts`, `redirect.ts` (`getRedirectTarget` przyjmuje tylko ścieżki wewnątrz aplikacji, odrzuca `//` i `/\`).
+- `components/layout/` — `AppLayout` (nagłówek z nazwą, e-mailem i przyciskiem „Log out”), `FullPageLoader`.
+- `test/` — `mockAdapter.ts` (ręczny adapter axios), `renderApp.tsx`, `fixtures.ts`.
 
 ## Przepływy danych
 Przepływ M0: `HomePage` → `useApiHealth` → `GET /api/health` (proxy Vite) → `health.routes` → `health.controller` → `health.service` → `{ "status": "ok" }`.
@@ -45,6 +51,34 @@ sequenceDiagram
     A-->>C: 401 UNAUTHORIZED (ciasteczko usunięte)
   end
 ```
+
+Przepływ uwierzytelniania we frontendzie (M1b, ADR-016–018):
+
+```mermaid
+sequenceDiagram
+  participant U as UI
+  participant S as authSlice
+  participant X as axios (interceptor)
+  participant A as API
+  U->>S: start aplikacji (status idle)
+  U->>X: restoreSession: POST /auth/refresh (status loading)
+  X->>A: ciasteczko refresh_token
+  A-->>X: accessToken + user
+  X->>S: setSession (authenticated)
+  U->>X: żądanie chronione (Bearer)
+  X->>A: żądanie z nagłówkiem Bearer
+  A-->>X: 401
+  X->>A: POST /auth/refresh (jedno naraz)
+  alt sukces
+    X->>A: powtórzenie żądania z nowym tokenem
+  else 401 REFRESH_TOKEN_ROTATED
+    X->>X: czekaj 400 ms, ponów refresh raz
+  else 401 lub niepoprawna odpowiedź
+    X->>S: clearSession (unauthenticated), przejście do /login
+  end
+```
+
+Błędy sieci, 5xx i 429 podczas odświeżania nie kończą sesji. Wynik odświeżenia rozpoczętego w poprzedniej sesji (inny `sessionEpoch`) jest odrzucany. Wylogowanie czeka na zakończenie trwającego odświeżenia (`waitForPendingRefresh`), wysyła `POST /auth/logout` i zawsze czyści stan lokalny.
 
 Docelowy przepływ (ADR-003): UI → REST → baza → zdarzenie Socket.io do pokoju `board:<id>` → pozostali klienci.
 

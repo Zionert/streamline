@@ -7,7 +7,8 @@
 > TypeScript 6.0.3 (ADR-007), React 19.3.1, Vite 8.3.7, Tailwind 4.3.5, Express 5.3.0,
 > Prisma 7.10.1 (ADR-008), Zod 4.6.7, Vitest 5.1.0, ESLint 10.14.0, PostgreSQL 18 (`postgres:18-alpine`).
 > Stan po M1a: dodano bcryptjs 3.0.3, jose 6.2.17, cookie-parser 1.4.7, express-rate-limit 8.7.4 (ADR-010–015).
-> Zustand, axios, socket.io-client i react-hook-form zostaną dodane przy pierwszym użyciu.
+> Stan po M1b: dodano w `apps/web` zustand 5.1.0, axios 1.21.1, react-hook-form 7.91.0, @hookform/resolvers 7.0.5 oraz bezpośrednio zod 4.6.7 (wymagany przez typy `zodResolver` przy pnpm). Testy HTTP bez MSW (ADR-019).
+> socket.io-client zostanie dodany przy pierwszym użyciu.
 
 ## 1. Struktura repozytorium — monorepo (pnpm workspaces)
 

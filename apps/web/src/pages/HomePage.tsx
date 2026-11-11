@@ -18,7 +18,7 @@ export function HomePage() {
   const { status, recheck } = useApiHealth();
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-6 p-6 text-center">
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6 text-center">
       <h1 className="text-5xl font-bold tracking-tight">StreamLine</h1>
       <p className="max-w-md text-lg text-muted-foreground">
         Kanban boards for Agile teams, with drag &amp; drop and real-time collaboration.

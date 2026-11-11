@@ -89,3 +89,27 @@
 - **Decyzja:** `globalSetup` Vitest wyznacza adres (`DATABASE_URL_TEST` lub `DATABASE_URL` z `_test` dodanym do nazwy bazy), odmawia pracy, gdy nazwa bazy nie kończy się na `_test`, wykonuje `prisma migrate deploy` (tworzy bazę, jeśli brak), a przed każdym testem `TRUNCATE`. `fileParallelism: false` (wspólna baza). CI ustawia `DATABASE_URL_TEST`.
 - **Alternatywy:** mocki repozytoriów (nie sprawdzają transakcji ani ograniczeń); baza w pamięci (inny silnik).
 - **Konsekwencje:** testy wymagają działającego PostgreSQL (`pnpm db:up`); są wolniejsze od testów z mockami, ale wykrywają błędy zapytań i wyścigów.
+
+## ADR-016: Access token w pamięci i odświeżanie single-flight z jednym opóźnionym ponowieniem
+- **Kontekst:** ADR-004 wymaga trzymania access tokena poza `localStorage`; równoległe żądania 401 nie mogą wywołać wielu rotacji refresh tokena, a serwer zwraca `REFRESH_TOKEN_ROTATED` przy wyścigu (ADR-013).
+- **Decyzja:** token tylko w stanie Zustand. Interceptor axios po 401 wykonuje jedno wspólne `POST /auth/refresh` (współdzielona obietnica), po czym powtarza żądanie jeden raz (`authRetried`); jeśli token zmienił się w międzyczasie, żądanie jest powtarzane bez nowego odświeżenia. Przy `REFRESH_TOKEN_ROTATED` klient czeka 400 ms i ponawia odświeżenie jeden raz. Endpointy `/auth/refresh|login|register|logout` oraz żądania z `skipAuthRefresh` nie wyzwalają odświeżania (`/auth/me` tak). Sesja jest czyszczona tylko po 401 lub niepoprawnej odpowiedzi odświeżenia; błędy sieci, 5xx i 429 ją zachowują.
+- **Alternatywy:** token w `localStorage`; odświeżanie cykliczne w tle; ponawianie bez limitu.
+- **Konsekwencje:** brak tokena w pamięci trwałej (po przeładowaniu strony sesję przywraca `/auth/refresh`); stałe 400 ms jest heurystyką (`DEFAULT_ROTATED_RETRY_DELAY_MS`, wstrzykiwalne w testach).
+
+## ADR-017: Epoka sesji i wylogowanie czekające na odświeżenie
+- **Kontekst:** odświeżenie w toku mogłoby po wylogowaniu przywrócić sesję lub unieważnić nowszą (wynik z przeszłości).
+- **Decyzja:** `sessionEpoch` rośnie przy `clearSession`; wynik odświeżenia z innej epoki jest odrzucany (`StaleRefreshError`), a nieaktualna porażka nie czyści nowszej sesji. `logout` najpierw czeka na `waitForPendingRefresh`, potem wysyła `POST /auth/logout`, zawsze czyści stan i nigdy nie odrzuca obietnicy.
+- **Alternatywy:** anulowanie żądań (`AbortController`); brak ochrony.
+- **Konsekwencje:** znane luki (`docs/PROJECT_STATE.md`): odświeżenie może wystartować w trakcie `POST /auth/logout`; `login`/`register` nie zwiększają epoki.
+
+## ADR-018: Przywracanie sesji odporne na StrictMode
+- **Kontekst:** w trybie deweloperskim React uruchamia efekty dwukrotnie; dwa `POST /auth/refresh` z tym samym ciasteczkiem dałyby `REFRESH_TOKEN_ROTATED`.
+- **Decyzja:** `restoreSession` działa tylko dla `status === 'idle'` i synchronicznie przełącza stan na `loading`, więc drugie wywołanie jest pomijane. `/auth/refresh` zwraca użytkownika, więc `/auth/me` nie jest wywoływane. Wywołuje go `AuthBootstrap` (trasa główna).
+- **Alternatywy:** flaga w `useRef`; wyłączenie StrictMode.
+- **Konsekwencje:** stan sesji jest źródłem prawdy o tym, czy przywracanie już trwa.
+
+## ADR-019: Testy HTTP z ręcznym adapterem axios zamiast MSW
+- **Kontekst:** testy klienta wymagają deterministycznego sterowania odpowiedziami (kolejność, opóźnienia, równoległość 401).
+- **Decyzja:** `apps/web/src/test/mockAdapter.ts` implementuje adapter axios i jest wstrzykiwany do `createApiClient({ adapter })`; MSW nie jest używany.
+- **Alternatywy:** MSW (dodatkowa zależność i warstwa przechwytywania sieci).
+- **Konsekwencje:** testy nie obejmują warstwy XHR/`fetch`; mniej zależności, pełna kontrola nad czasem (`sleep` wstrzykiwany).

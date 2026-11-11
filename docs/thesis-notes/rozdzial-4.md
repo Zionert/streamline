@@ -33,3 +33,11 @@ Rozróżnienie opiera się na polach `revokedAt` i `replacedById` (ADR-013). Kom
 - **Polityka haseł:** schemat logowania nie sprawdza minimalnej długości, aby nie ujawniać polityki.
 - **Ograniczenia znane:** licznik limitów w pamięci procesu, brak `trust proxy`, brak `iss`/`aud` w JWT, brak czyszczenia wygasłych tokenów (`docs/PROJECT_STATE.md`).
 - Odpowiedzi z tokenami mają `Cache-Control: no-store`.
+
+## 4.x Uwierzytelnianie we frontendzie (M1b)
+- Stos: Zustand 5.1.0, axios 1.21.1, react-hook-form 7.91.0 z `@hookform/resolvers` 7.0.5, shadcn/ui.
+- `createApiClient` jest fabryką z wstrzykiwanymi zależnościami (`adapter`, `sleep`, `rotatedRetryDelayMs`), co umożliwia deterministyczne testy. Jedno wspólne odświeżenie realizuje współdzielona obietnica `refreshInFlight`; limit jednego powtórzenia żądania zapewnia znacznik `authRetried`.
+- Odporność na wyścigi: `sessionEpoch` (zwiększany w `clearSession`) pozwala odrzucić nieaktualny wynik odświeżenia; `logout` oczekuje na `waitForPendingRefresh`. Błędy sieci, 5xx i 429 nie kończą sesji, w odróżnieniu od 401 lub niepoprawnej odpowiedzi.
+- Przywracanie sesji: `restoreSession` działa tylko dla stanu `idle` i natychmiast przechodzi w `loading`, więc podwójne wywołanie efektu w StrictMode nie powoduje drugiej rotacji tokena.
+- Obsługa błędów formularzy: komunikaty dla 401, 409, 400 (tekst serwera), 429, błędu sieci i ogólnego; pola z `aria-invalid` i `aria-describedby`.
+- Znane ograniczenia: patrz „Znane problemy” w `docs/PROJECT_STATE.md` (m.in. odświeżenie w trakcie wylogowania, brak podziału kodu — fragment 537 kB).
