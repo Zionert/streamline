@@ -3,8 +3,9 @@ import { Router, type RequestHandler } from 'express';
 import { createBoardController } from '../controllers/board.controller.js';
 import type { RequireBoardPermission } from '../middleware/require-board-permission.js';
 import type { BoardService } from '../services/board.service.js';
+import { createColumnRouter, type ColumnRouterDependencies } from './column.routes.js';
 
-export interface BoardRouterDependencies {
+export interface BoardRouterDependencies extends ColumnRouterDependencies {
   boardService: BoardService;
   requireAuth: RequestHandler;
   requireBoardPermission: RequireBoardPermission;
@@ -12,6 +13,7 @@ export interface BoardRouterDependencies {
 
 export function createBoardRouter({
   boardService,
+  columnService,
   requireAuth,
   requireBoardPermission: can,
 }: BoardRouterDependencies): Router {
@@ -32,6 +34,11 @@ export function createBoardRouter({
   router.patch('/:boardId/members/:userId', can('members:manage'), controller.updateMember);
   // Any member may leave the board; removing someone else is checked in the service.
   router.delete('/:boardId/members/:userId', can('board:view'), controller.removeMember);
+
+  router.use(
+    '/:boardId/columns',
+    createColumnRouter({ columnService, requireBoardPermission: can }),
+  );
 
   return router;
 }

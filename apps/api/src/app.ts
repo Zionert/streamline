@@ -12,6 +12,7 @@ import { createRequireAuth } from './middleware/require-auth.js';
 import { createRequireBoardPermission } from './middleware/require-board-permission.js';
 import { createBoardMemberRepository } from './repositories/board-member.repository.js';
 import { createBoardRepository } from './repositories/board.repository.js';
+import { createColumnRepository } from './repositories/column.repository.js';
 import type { DbClient } from './repositories/db.js';
 import { createRefreshTokenRepository } from './repositories/refresh-token.repository.js';
 import { createUserRepository } from './repositories/user.repository.js';
@@ -19,6 +20,7 @@ import { createRouter } from './routes/index.js';
 import { createAuthService } from './services/auth.service.js';
 import { createBoardAccessService } from './services/board-access.service.js';
 import { createBoardService } from './services/board.service.js';
+import { createColumnService } from './services/column.service.js';
 import { createPasswordHasher } from './services/password.service.js';
 import { createTokenService } from './services/token.service.js';
 
@@ -48,6 +50,7 @@ export function createApp({ config, logger, db }: AppDependencies): Express {
     users,
   });
   const boardAccess = createBoardAccessService({ members: boardMembers });
+  const columnService = createColumnService({ columns: createColumnRepository(db) });
 
   const app = express();
 
@@ -61,6 +64,7 @@ export function createApp({ config, logger, db }: AppDependencies): Express {
     createRouter({
       authService,
       boardService,
+      columnService,
       requireAuth: createRequireAuth(tokens),
       requireBoardPermission: createRequireBoardPermission(boardAccess),
       config,

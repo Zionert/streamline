@@ -57,3 +57,10 @@ export class TooManyRequestsError extends AppError {
     super(429, 'TOO_MANY_REQUESTS', message);
   }
 }
+
+/** A temporary condition (e.g. lock contention) prevented the request; it may be retried. */
+export class ServiceUnavailableError extends AppError {
+  constructor(message = 'Service temporarily unavailable', code = 'SERVICE_UNAVAILABLE') {
+    super(503, code, message);
+  }
+}

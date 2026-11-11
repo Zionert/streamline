@@ -1,4 +1,8 @@
-import type { Board as BoardRecord, BoardRole } from '../generated/prisma/client.js';
+import type {
+  Board as BoardRecord,
+  BoardRole,
+  ColumnCategory,
+} from '../generated/prisma/client.js';
 import type { DbClient } from './db.js';
 import { isPrismaError, PRISMA_ERROR } from './prisma-errors.js';
 
@@ -10,9 +14,20 @@ export interface BoardWithRole {
   role: BoardRole;
 }
 
+/** A column created together with a new board. */
+export interface InitialColumnData {
+  title: string;
+  rank: string;
+  category: ColumnCategory;
+}
+
 export interface BoardRepository {
-  /** Creates the board and makes `ownerId` its OWNER atomically. */
-  createWithOwner(name: string, ownerId: string): Promise<BoardRecord>;
+  /** Creates the board with its initial columns and makes `ownerId` its OWNER atomically. */
+  createWithOwner(
+    name: string,
+    ownerId: string,
+    columns: readonly InitialColumnData[],
+  ): Promise<BoardRecord>;
   findById(id: string): Promise<BoardRecord | null>;
   /** Boards the user is a member of, newest first. */
   listForUser(userId: string): Promise<BoardWithRole[]>;
@@ -24,10 +39,14 @@ export interface BoardRepository {
 
 export function createBoardRepository(db: DbClient): BoardRepository {
   return {
-    createWithOwner(name, ownerId) {
+    createWithOwner(name, ownerId, columns) {
       // A nested create runs in a single transaction.
       return db.board.create({
-        data: { name, members: { create: { userId: ownerId, role: 'OWNER' } } },
+        data: {
+          name,
+          members: { create: { userId: ownerId, role: 'OWNER' } },
+          columns: { create: [...columns] },
+        },
       });
     },
 

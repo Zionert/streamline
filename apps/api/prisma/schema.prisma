@@ -56,6 +56,7 @@ model Board {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   members   BoardMember[]
+  columns   Column[]
 }
 
 /// Membership of a user in a board. Each board has exactly one OWNER, which is additionally
@@ -73,4 +74,36 @@ model BoardMember {
 
   @@unique([boardId, userId])
   @@index([userId])
+}
+
+/// Workflow category of a column; analytics and WIP rules use it instead of the title.
+enum ColumnCategory {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+// Board column, ordered by `rank` (keys from @streamline/shared, computed by the server).
+// Hand-written in the migration SQL, because Prisma cannot express it:
+// - "rank" uses COLLATE "C", so ORDER BY "rank" equals JavaScript string comparison;
+// - "Column_boardId_rank_key" is a DEFERRABLE INITIALLY IMMEDIATE unique constraint, checked at
+//   the end of each statement instead of after every row, so a rebalance can rewrite all ranks
+//   of a board in a single UPDATE. Prisma does not diff collation or deferrability, so
+//   `prisma migrate dev` reports no drift.
+model Column {
+  id        String         @id @default(cuid())
+  boardId   String
+  board     Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  title     String
+  rank      String
+  category  ColumnCategory @default(TODO)
+  /// Maximum number of cards; null = no limit.
+  wipLimit  Int?
+  /// When true the WIP limit blocks adding cards instead of only warning.
+  wipStrict Boolean        @default(false)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([boardId, rank])
 }

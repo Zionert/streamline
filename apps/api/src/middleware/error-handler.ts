@@ -1,4 +1,4 @@
-import type { ErrorResponse } from '@streamline/shared';
+import { RankError, type ErrorResponse, type RankErrorCode } from '@streamline/shared';
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
 
@@ -15,6 +15,17 @@ function isHttpClientError(err: unknown): err is Error & { status: number } {
   );
 }
 
+/**
+ * Rank keys are computed on the server from stored neighbours, so a `RankError` means the
+ * request referred to an impossible ordering (409) or the input to the rank functions was
+ * malformed (400). It is logged, as it may also point to corrupted ranks.
+ */
+const RANK_ERROR_STATUS: Record<RankErrorCode, number> = {
+  INVALID_RANK: 400,
+  INVALID_ARGUMENT: 400,
+  INVALID_RANK_ORDER: 409,
+};
+
 export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next) => {
   let status: number;
   let body: ErrorResponse;
@@ -28,6 +39,10 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next)
         ...(err.details !== undefined && { details: err.details }),
       },
     };
+  } else if (err instanceof RankError) {
+    req.log.warn({ err }, 'Rank error');
+    status = RANK_ERROR_STATUS[err.code];
+    body = { error: { code: err.code, message: err.message } };
   } else if (err instanceof ZodError) {
     status = 400;
     body = {
