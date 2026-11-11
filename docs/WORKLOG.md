@@ -2,6 +2,15 @@
 
 Najnowsze wpisy na górze.
 
+## 2026-11-11 — Nazar — M1a: uwierzytelnianie (backend)
+- Modele `User` i `RefreshToken`, migracja `20261111010926_auth_users_refresh_tokens`.
+- Endpointy `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`; bcryptjs, JWT (jose), refresh token z rotacją i wykrywaniem ponownego użycia (okno łaski), `requireAuth`, ograniczanie liczby żądań, redakcja logów.
+- `createApp({ config, logger, db })` — ręczne wstrzykiwanie zależności; schematy Zod uwierzytelniania w `packages/shared`.
+- Testy integracyjne na osobnej bazie `streamline_test` (globalSetup, TRUNCATE); CI używa `DATABASE_URL_TEST`. Testy: shared 28, api 77, web 5.
+- Dokumentacja: ADR-010–015, aktualizacja API/DATABASE/TECH_STACK/PROJECT_STATE (M0 oznaczone jako zmergowane), notatki do rozdziałów 3 i 4.
+- Przegląd kodu: zatwierdzony po 2 rundach.
+- Pliki: `apps/api/prisma/*`, `apps/api/src/{app,server,config,errors,middleware,controllers,routes,services,repositories,test}`, `packages/shared/src/schemas/auth.ts`, `.github/workflows/ci.yml`, `docs/*`.
+
 ## 2026-11-11 — Nazar — M0: szkielet monorepo
 - Monorepo pnpm, API Express 5 z `/health`, frontend Vite + React + Tailwind + shadcn/ui, pakiet `shared`.
 - Prisma 7 (pusty schemat), `docker-compose.yml`, ESLint/Prettier/Husky, Vitest, GitHub Actions.

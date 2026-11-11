@@ -12,3 +12,31 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model User {
+  id            String         @id @default(cuid())
+  /// Stored normalized (trimmed, lowercase).
+  email         String         @unique
+  passwordHash  String
+  name          String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+}
+
+/// Opaque refresh tokens; only the SHA-256 hash of the token is stored.
+model RefreshToken {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String        @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  /// Token issued in exchange for this one during rotation.
+  replacedById String?       @unique
+  replacedBy   RefreshToken? @relation("RefreshTokenRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces     RefreshToken? @relation("RefreshTokenRotation")
+  createdAt    DateTime      @default(now())
+
+  @@index([userId])
+}

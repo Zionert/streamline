@@ -32,7 +32,8 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://streamline:streamline@localhost:5432/streamline_test?schema=public
+      # API integration tests create and migrate this database in their global setup.
+      DATABASE_URL_TEST: postgresql://streamline:streamline@localhost:5432/streamline_test?schema=public
       NODE_ENV: test
 
     steps:
