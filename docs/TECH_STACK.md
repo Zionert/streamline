@@ -2,6 +2,11 @@
 
 > Wersje: przy inicjalizacji projektu wybieramy **najnowsze stabilne**, a następnie
 > blokujemy je w `package.json` / `pnpm-lock.yaml`.
+>
+> Stan po M0: wersje przypięte dokładnie (bez `^`). Kluczowe: Node 24 (`.nvmrc`), pnpm 10.32.0,
+> TypeScript 6.0.3 (ADR-007), React 19.3.1, Vite 8.3.7, Tailwind 4.3.5, Express 5.3.0,
+> Prisma 7.10.1 (ADR-008), Zod 4.6.7, Vitest 5.1.0, ESLint 10.14.0, PostgreSQL 18 (`postgres:18-alpine`).
+> Zustand, axios, socket.io-client i react-hook-form zostaną dodane przy pierwszym użyciu.
 
 ## 1. Struktura repozytorium — monorepo (pnpm workspaces)
 
@@ -32,7 +37,7 @@ wystarczy `pnpm -r`.
 | Routing | **React Router** | `/login`, `/register`, `/boards`, `/boards/:id` |
 | Stan | **Zustand** (slices: `authSlice`, `boardSlice`, `uiSlice`) | jeden magazyn dla danych z REST i WebSocket |
 | Klient HTTP | **axios** z interceptorem odświeżania tokena | |
-| Drag & drop | **@hello-pangea/dnd** | do zweryfikowania zgodność z najnowszym React w M0; alternatywa: dnd-kit |
+| Drag & drop | **@hello-pangea/dnd** | wersja 18.0.1 zgodna z React 19 (peer deps `^18 || ^19`, test dymny w M0); ostatnie wydanie: luty 2025, dnd-kit pozostaje awaryjną alternatywą |
 | Czas rzeczywisty | **socket.io-client** | |
 | Style | **Tailwind CSS** + **shadcn/ui** (Radix) | dostępne (a11y) komponenty, lekki zestaw |
 | Formularze | **react-hook-form** + Zod resolver | te same schematy co w backendzie |
