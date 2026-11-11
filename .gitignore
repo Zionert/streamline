@@ -3,8 +3,11 @@ dist/
 build/
 coverage/
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
 *.log
 .DS_Store
 .vscode/*
