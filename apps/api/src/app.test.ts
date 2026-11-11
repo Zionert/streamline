@@ -4,13 +4,23 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { createApp } from './app.js';
+import { loadConfig } from './config/env.js';
+import { createDbClient } from './repositories/db.js';
 
 const FRONTEND_ORIGIN = 'http://localhost:5173';
+// Never connected: the Prisma client opens its connection lazily and these routes do not query.
+const UNUSED_DATABASE_URL = 'postgresql://unused:unused@localhost:5432/unused';
 
 function buildApp() {
   return createApp({
-    config: { CORS_ORIGIN: [FRONTEND_ORIGIN] },
+    config: loadConfig({
+      DATABASE_URL: UNUSED_DATABASE_URL,
+      JWT_ACCESS_SECRET: 'x'.repeat(32),
+      BCRYPT_COST: '4',
+      CORS_ORIGIN: FRONTEND_ORIGIN,
+    }),
     logger: pino({ level: 'silent' }),
+    db: createDbClient(UNUSED_DATABASE_URL),
   });
 }
 

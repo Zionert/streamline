@@ -6,6 +6,7 @@
 > Stan po M0: wersje przypięte dokładnie (bez `^`). Kluczowe: Node 24 (`.nvmrc`), pnpm 10.32.0,
 > TypeScript 6.0.3 (ADR-007), React 19.3.1, Vite 8.3.7, Tailwind 4.3.5, Express 5.3.0,
 > Prisma 7.10.1 (ADR-008), Zod 4.6.7, Vitest 5.1.0, ESLint 10.14.0, PostgreSQL 18 (`postgres:18-alpine`).
+> Stan po M1a: dodano bcryptjs 3.0.3, jose 6.2.17, cookie-parser 1.4.7, express-rate-limit 8.7.4 (ADR-010–015).
 > Zustand, axios, socket.io-client i react-hook-form zostaną dodane przy pierwszym użyciu.
 
 ## 1. Struktura repozytorium — monorepo (pnpm workspaces)
@@ -50,9 +51,9 @@ wystarczy `pnpm -r`.
 | Środowisko | **Node.js LTS** | |
 | Framework | **Express 5** + TypeScript | natywna obsługa błędów z handlerów async |
 | Architektura | Controllers → Services → Repositories | |
-| Walidacja | **Zod** (schematy z `packages/shared`) | middleware `validate(schema)` |
+| Walidacja | **Zod** (schematy z `packages/shared`) | `schema.parse` w kontrolerach (ADR-014) |
 | ORM / baza danych | **Prisma** + **PostgreSQL** (Docker) | migracje przez `prisma migrate` |
-| Uwierzytelnianie | **JWT** (access 15 min + refresh 7 dni) + **bcrypt** | szczegóły niżej |
+| Uwierzytelnianie | **JWT** (jose, HS256; access 15 min) + nieprzezroczysty refresh 7 dni + **bcryptjs** | szczegóły niżej; ADR-010–013 |
 | Czas rzeczywisty | **Socket.io** (pokoje `board:<id>`, JWT w handshake) | |
 | Bezpieczeństwo | helmet, cors (tylko origin frontendu), express-rate-limit na `/auth/*` | |
 | Logowanie | pino (+ pino-http) | |
@@ -60,8 +61,8 @@ wystarczy `pnpm -r`.
 
 ### Schemat uwierzytelniania
 - `POST /auth/login` → `accessToken` w treści odpowiedzi (frontend przechowuje go **w pamięci**,
-  nie w localStorage) oraz `refreshToken` w ciasteczku **httpOnly, Secure, SameSite=Strict**.
-- Refresh token przechowywany w bazie **w postaci skrótu (hash)**, rotowany przy każdym `/auth/refresh`.
+  nie w localStorage) oraz refresh token w ciasteczku `refresh_token` (**httpOnly, SameSite=Strict, Secure w produkcji**, ścieżka `/api/auth`).
+- Refresh token przechowywany w bazie **w postaci skrótu (hash)**, rotowany przy każdym `/auth/refresh`; ponowne użycie jest wykrywane (okno łaski, ADR-013). Endpointy i błędy: `docs/API.md`.
 - Socket.io: access token przekazywany w polu `auth` podczas handshake i weryfikowany przez middleware.
 
 ## 4. Pakiet wspólny (`packages/shared`)

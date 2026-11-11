@@ -51,3 +51,41 @@
 - **Decyzja:** zostaje `@hello-pangea/dnd` 18.0.1 (peer deps `react ^18 || ^19`); test dymny `DragDropContext`/`Droppable`/`Draggable` przechodzi na React 19.3.1 bez błędów w konsoli.
 - **Alternatywy:** dnd-kit.
 - **Konsekwencje:** ostatnie wydanie biblioteki pochodzi z lutego 2025 — dnd-kit pozostaje rozwiązaniem awaryjnym.
+
+## ADR-010: bcryptjs zamiast bcrypt do haszowania haseł
+- **Kontekst:** pakiet `bcrypt` wymaga natywnej kompilacji/prebuildów, co sprawia problemy na Windows z Node 24.
+- **Decyzja:** `bcryptjs` 3.0.3 (czysty JavaScript), współczynnik kosztu `BCRYPT_COST` (4–15, domyślnie 12, w produkcji min. 12). Hasła są ograniczone do 72 bajtów UTF-8 w schemacie Zod, bo bcrypt obcina dłuższe dane. Przy logowaniu nieznanego e-maila wykonywane jest porównanie z atrapą hasha (tworzoną przy starcie) — wyrównanie czasu odpowiedzi.
+- **Alternatywy:** `bcrypt` (natywny, szybszy); argon2 (nowocześniejszy, również natywny).
+- **Konsekwencje:** brak problemów z instalacją; wolniejsze haszowanie niż w wersji natywnej. W testach używany jest niski koszt.
+
+## ADR-011: jose zamiast jsonwebtoken do tokenów dostępu
+- **Kontekst:** potrzebna weryfikacja JWT z jawnym ograniczeniem dozwolonych algorytmów.
+- **Decyzja:** `jose` 6.2.17, algorytm HS256 (`JWT_ACCESS_SECRET`, min. 32 znaki), weryfikacja z listą dozwolonych algorytmów (`algorithms: ['HS256']`) i wymaganymi claimami `sub`, `exp`. TTL 15 min (`ACCESS_TOKEN_TTL_SECONDS`).
+- **Alternatywy:** `jsonwebtoken`; RS256 (zbędny przy jednym serwisie).
+- **Konsekwencje:** brak claimów `iss`/`aud` — do dodania przed uwierzytelnianiem Socket.io.
+
+## ADR-012: Atrybuty ciasteczka refresh token
+- **Kontekst:** refresh token jest wrażliwszy niż access token (ADR-004); przeglądarka komunikuje się z API przez to samo źródło dzięki proxy `/api`.
+- **Decyzja:** ciasteczko `refresh_token`: `httpOnly`, `SameSite=Strict`, `Secure` w produkcji, `Path=/api/auth` (konfigurowalne `REFRESH_COOKIE_PATH`), `Max-Age` 7 dni. Token jest wysyłany tylko do endpointów `/api/auth/*`.
+- **Alternatywy:** `SameSite=Lax`; ciasteczko dla ścieżki `/`; refresh token w ciele odpowiedzi.
+- **Konsekwencje:** ochrona przed XSS i CSRF; wdrożenie z frontendem i API w różnych witrynach (cross-site) wymagałoby zmiany `SameSite`; `REFRESH_COOKIE_PATH` musi odpowiadać ścieżce widzianej przez przeglądarkę.
+
+## ADR-013: Rotacja refresh tokenów i wykrywanie ponownego użycia z oknem łaski
+- **Kontekst:** skradziony refresh token pozwala na długotrwały dostęp; jednocześnie kilka kart przeglądarki może odświeżać sesję równolegle tym samym tokenem.
+- **Decyzja:** każde `/auth/refresh` unieważnia stary token i wydaje nowy (transakcja; `updateMany ... WHERE revokedAt IS NULL` rozstrzyga wyścigi). Ponowne użycie unieważnionego tokena:
+  - w oknie `REFRESH_REUSE_GRACE_SECONDS` (domyślnie 30 s, 0–300, 0 = tryb ścisły) po rotacji lub przy przegranej równoległej rotacji — 401 `REFRESH_TOKEN_ROTATED`, bez unieważniania pozostałych tokenów, ciasteczko zachowane;
+  - po oknie albo dla tokena unieważnionego wylogowaniem/masowo — unieważnienie wszystkich refresh tokenów użytkownika, 401 `UNAUTHORIZED`, usunięcie ciasteczka, wpis w logu.
+- **Alternatywy:** brak rotacji; ścisła rotacja bez okna (fałszywe alarmy przy wielu kartach).
+- **Konsekwencje:** kompromis — jeśli atakujący odświeży token jako pierwszy, a prawowity klient użyje starego tokena w oknie łaski, wykrycie kradzieży jest opóźnione. Okno liczone zegarem aplikacji (poprawne dla jednej instancji). Klient (M1b) musi ponowić odświeżenie po `REFRESH_TOKEN_ROTATED`.
+
+## ADR-014: Walidacja schematami `shared` bezpośrednio w kontrolerach, ręczne DI
+- **Kontekst:** `docs/TECH_STACK.md` zakładał middleware `validate(schema)`.
+- **Decyzja:** kontrolery wywołują `schema.parse(req.body)`; `ZodError` jest mapowany na 400 `VALIDATION_ERROR` w `error-handler`. Schematy nadal pochodzą wyłącznie z `packages/shared`. Zależności (konfiguracja, logger, klient bazy) są wstrzykiwane ręcznie przez `createApp({ config, logger, db })`.
+- **Alternatywy:** middleware `validate()`; kontener DI.
+- **Konsekwencje:** typ wejścia wynika z `parse` bez rzutowania; mniej warstw. Middleware można dodać później, jeśli powtórzenia się nasilą.
+
+## ADR-015: Osobna baza testowa dla testów integracyjnych API
+- **Kontekst:** testy Supertest muszą działać na prawdziwym PostgreSQL bez ryzyka skasowania danych deweloperskich.
+- **Decyzja:** `globalSetup` Vitest wyznacza adres (`DATABASE_URL_TEST` lub `DATABASE_URL` z `_test` dodanym do nazwy bazy), odmawia pracy, gdy nazwa bazy nie kończy się na `_test`, wykonuje `prisma migrate deploy` (tworzy bazę, jeśli brak), a przed każdym testem `TRUNCATE`. `fileParallelism: false` (wspólna baza). CI ustawia `DATABASE_URL_TEST`.
+- **Alternatywy:** mocki repozytoriów (nie sprawdzają transakcji ani ograniczeń); baza w pamięci (inny silnik).
+- **Konsekwencje:** testy wymagają działającego PostgreSQL (`pnpm db:up`); są wolniejsze od testów z mockami, ale wykrywają błędy zapytań i wyścigów.

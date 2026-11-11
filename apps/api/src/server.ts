@@ -12,7 +12,7 @@ if (existsSync('.env')) {
 const config = loadConfig();
 const logger = createLogger(config);
 const db = createDbClient(config.DATABASE_URL);
-const app = createApp({ config, logger });
+const app = createApp({ config, logger, db });
 
 const server = app.listen(config.PORT, (error?: Error) => {
   if (error) {
