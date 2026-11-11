@@ -113,3 +113,15 @@
 - **Decyzja:** `apps/web/src/test/mockAdapter.ts` implementuje adapter axios i jest wstrzykiwany do `createApiClient({ adapter })`; MSW nie jest używany.
 - **Alternatywy:** MSW (dodatkowa zależność i warstwa przechwytywania sieci).
 - **Konsekwencje:** testy nie obejmują warstwy XHR/`fetch`; mniej zależności, pełna kontrola nad czasem (`sleep` wstrzykiwany).
+
+## ADR-020: Analityka przepływu na podstawie rejestru przejść kart
+- **Kontekst:** wyróżnikiem projektu jest analityka przepływu (lead/cycle time, przepustowość, CFD, aging WIP, prognoza Monte Carlo — `docs/REQUIREMENTS.md`, WF-FLOW). Metryki wymagają pełnej historii ruchu kart, której nie da się odtworzyć wstecz.
+- **Decyzja:** od M3 każde przeniesienie karty między kolumnami zapisuje wiersz `CardTransition` w tej samej transakcji co zmianę `columnId`/`rank`. Kolumny mają kategorię (`BACKLOG`, `TODO`, `IN_PROGRESS`, `DONE`), dzięki której metryki nie zależą od nazw kolumn. Obliczenia metryk i symulacja Monte Carlo jako czyste funkcje w `packages/shared`; API dostarcza surowe dane lub zagregowane wyniki.
+- **Alternatywy:** wyliczanie z ogólnego `ActivityLog` (słabsza struktura, trudniejsze zapytania); znaczniki czasu na karcie (tracą historię ponownych otwarć); zewnętrzne narzędzie BI (poza zakresem).
+- **Konsekwencje:** dodatkowy zapis przy każdym przeniesieniu (akceptowalny koszt); indeksy na `(boardId, movedAt)` i `(cardId, movedAt)`; metryki testowalne jednostkowo na danych syntetycznych.
+
+## ADR-021: Asystent AI jako opcjonalny moduł za adapterem dostawcy
+- **Kontekst:** funkcje pomocnicze (podział zadania, kryteria akceptacji, podsumowanie tygodnia — WF-AI) korzystają z zewnętrznego modelu językowego, który jest płatny, niedeterministyczny i może być niedostępny.
+- **Decyzja:** moduł po stronie serwera za interfejsem `LlmProvider` (konkretny dostawca wybierany konfiguracją), włączany zmienną `AI_ENABLED`; wyniki są wyłącznie propozycjami zatwierdzanymi przez użytkownika; limit zapytań na użytkownika (`AiUsage`); w testach dostawca atrapowy.
+- **Alternatywy:** wywołania z przeglądarki (wyciek klucza API); automatyczne stosowanie wyników (ryzyko błędnych zmian); brak modułu.
+- **Konsekwencje:** aplikacja działa w pełni bez AI; zmiana dostawcy nie wpływa na resztę kodu; moduł realizowany dopiero po ukończeniu M0–M6.

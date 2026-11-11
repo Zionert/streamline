@@ -74,6 +74,7 @@ Obaj członkowie zespołu pracują w pełnym zakresie (frontend + backend).
 | Plik | Przeznaczenie |
 |---|---|
 | `docs/PROJECT_STATE.md` | **Główny plik przekazania pracy**: stan, kolejne kroki, uruchamianie |
+| `docs/REQUIREMENTS.md` | Wymagania funkcjonalne i niefunkcjonalne, role i uprawnienia |
 | `docs/WORKLOG.md` | Dziennik prac (kto, kiedy, co) |
 | `docs/CHANGELOG.md` | Zmiany w produkcie |
 | `docs/API.md` | Endpointy REST i zdarzenia WebSocket |
@@ -103,15 +104,21 @@ Zasada: **wszystko, co trzeba wiedzieć, znajduje się w repozytorium**, a nie w
 
 ## 7. Plan prac (kamienie milowe)
 
-| # | Kamień milowy | Zakres | Rozdziały pracy |
-|---|---|---|---|
-| M0 | Szkielet | monorepo, PostgreSQL w Dockerze, Prisma, ESLint/Prettier, Husky, CI, „hello world” frontend + API | 4.4 |
-| M1 | Uwierzytelnianie | rejestracja, logowanie, JWT access + refresh, chronione trasy, ekrany logowania/rejestracji | 4.2.1, 5.2 |
-| M2 | Tablice i kolumny | CRUD tablic i kolumn, członkowie i role (OWNER/ADMIN/MEMBER/VIEWER) | 3.5, 4.2.2 |
-| M3 | Karty + DnD + LexoRank | CRUD kart, przeciąganie kart i kolumn, własna implementacja LexoRank z testami | 4.1.2, 4.3.2 |
-| M4 | Czas rzeczywisty | Socket.io: JWT w handshake, pokoje tablic, synchronizacja zmian, ponowne łączenie | 4.2.3 |
-| M5 | Szczegóły karty | opis, osoba przypisana, etykiety, termin, komentarze, limity WIP, historia aktywności | 3.3 |
-| M6 | Testy i pomiary | E2E (Playwright), benchmark LexoRank vs O(n), opóźnienie Socket.io, test użyteczności | 5.1–5.4 |
-| M7 | Dopracowanie | UI/UX, responsywność, wdrożenie, README, zrzuty ekranu do pracy | 3.6 |
+Zakres funkcjonalny i priorytety: `docs/REQUIREMENTS.md`.
 
-Orientacyjnie 2 tygodnie na kamień milowy (~4 miesiące implementacji), pozostały czas — tekst pracy i rezerwa.
+| # | Kamień milowy | Zakres | Wymagania | Rozdziały pracy |
+|---|---|---|---|---|
+| M0 ✅ | Szkielet | monorepo, PostgreSQL w Dockerze, Prisma, ESLint/Prettier, Husky, CI | — | 4.4 |
+| M1 ✅ | Uwierzytelnianie | rejestracja, logowanie, JWT access + refresh, chronione trasy, ekrany logowania/rejestracji | WF-AUTH | 4.2.1, 5.2 |
+| M2 | Tablice i kolumny | **M2a** LexoRank w `shared` + benchmark; **M2b** tablice, członkowie, role; **M2c** kolumny (kategoria, limit WIP); **M2d** frontend tablic i kolumn | WF-BOARD, WF-COL | 3.5, 4.2.2, 4.3.2 |
+| M3 | Karty + DnD | CRUD kart, przeciąganie kart, **rejestr przejść `CardTransition`** | WF-CARD-01..04 | 4.1.2 |
+| M4 | Czas rzeczywisty | Socket.io: JWT w handshake, pokoje tablic, synchronizacja, ponowne łączenie, **obecność użytkowników** | WF-RT | 4.2.3 |
+| M5 | Szczegóły karty | etykiety, komentarze, historia aktywności, **limity WIP** (wyróżnienie, tryb ścisły) | WF-CARD-05..07, WF-COL-04 | 3.3 |
+| M6 | **Analityka przepływu** | lead/cycle time, przepustowość, CFD, aging WIP, **prognoza Monte Carlo**, prawo Little'a | WF-FLOW | 3.x, 4.x, 5.3 |
+| M7 | Asystent AI (opcjonalnie) | podział zadania, kryteria akceptacji, podsumowanie tygodnia; adapter `LlmProvider`, `AI_ENABLED` | WF-AI | 4.x |
+| M8 | Testy i pomiary | E2E (Playwright), benchmark LexoRank vs O(n), opóźnienie Socket.io, trafność prognoz, test użyteczności | WNF | 5.1–5.4 |
+| M9 | Dopracowanie | UI/UX, responsywność, wdrożenie, README, zrzuty ekranu do pracy | WNF-04, WNF-05 | 3.6 |
+
+Kolejność jest wiążąca dla M2–M6 (analityka wymaga danych z `CardTransition` od M3).
+M7 realizujemy tylko wtedy, gdy M0–M6 są ukończone. Dane do analityki zbieramy na bieżąco,
+prowadząc zadania zespołu we własnej aplikacji od M3 (dogfooding).

@@ -28,9 +28,12 @@ M0 (szkielet monorepo) i M1a (uwierzytelnianie backendu) są zmergowane do `main
 - —
 
 ## Kolejne kroki
-1. Commit i PR dla M1b (gałąź `feat/m1b-auth-frontend`).
-2. Założenie tablicy GitHub Projects i issues dla M0–M2.
-3. M2: tablice (modele `Board`, `Column`, `Card`, LexoRank, endpointy REST, widok tablicy).
+Zakres i priorytety: `docs/REQUIREMENTS.md`; plan: `docs/WORKFLOW.md`, sekcja 7.
+1. **M2a** — własna implementacja LexoRank w `packages/shared` + benchmark (podstawa kolejności kolumn i kart).
+2. **M2b** — tablice, członkowie i role zgodnie z macierzą uprawnień (`REQUIREMENTS.md`, sekcja 2).
+3. **M2c** — kolumny z kategorią (`BACKLOG`/`TODO`/`IN_PROGRESS`/`DONE`) i limitem WIP.
+4. **M2d** — frontend tablic i kolumn.
+5. Od M3 każde przeniesienie karty zapisuje `CardTransition` (ADR-020) — warunek analityki przepływu (M6).
 
 ### Uwagi dla kolejnych etapów
 - Żądania chronione wykonywać przez instancję `api` z `apps/web/src/lib/api.ts` (obsługuje Bearer i odświeżanie); żądań do `/auth/*` nie opakowywać własnym odświeżaniem.
