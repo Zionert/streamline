@@ -11,3 +11,6 @@ coverage/
 !.vscode/extensions.json
 playwright-report/
 test-results/
+
+# Generated Prisma client
+apps/api/src/generated/

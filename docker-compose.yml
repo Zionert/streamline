@@ -1,0 +1,25 @@
+name: streamline
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: streamline-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-streamline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-streamline}
+      POSTGRES_DB: ${POSTGRES_DB:-streamline}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      # PostgreSQL 18+ images keep data in a version-specific subdirectory of /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres-data:

@@ -20,4 +20,15 @@ Szczegóły: [docs/TECH_STACK.md](docs/TECH_STACK.md)
 - [Decyzje architektoniczne](docs/DECISIONS.md)
 
 ## Uruchamianie
-_Instrukcja zostanie dodana po przygotowaniu szkieletu projektu._
+Wymagania: Node 24, pnpm 10, Docker.
+
+```bash
+pnpm install
+cp .env.example .env
+cp apps/api/.env.example apps/api/.env
+cp apps/web/.env.example apps/web/.env
+pnpm db:up
+pnpm dev
+```
+
+API: http://localhost:4000/health, aplikacja: http://localhost:5173.
