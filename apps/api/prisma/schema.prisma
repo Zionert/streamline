@@ -1,5 +1,5 @@
 // Prisma schema for StreamLine.
-// Models are added together with the features that need them (see docs/DATABASE.md).
+// Models are added together with the features that need them.
 // The datasource URL is configured in prisma.config.ts (DATABASE_URL).
 
 generator client {
