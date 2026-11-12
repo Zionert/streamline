@@ -3,9 +3,10 @@ import { Router, type RequestHandler } from 'express';
 import { createBoardController } from '../controllers/board.controller.js';
 import type { RequireBoardPermission } from '../middleware/require-board-permission.js';
 import type { BoardService } from '../services/board.service.js';
+import { createCardRouter, type CardRouterDependencies } from './card.routes.js';
 import { createColumnRouter, type ColumnRouterDependencies } from './column.routes.js';
 
-export interface BoardRouterDependencies extends ColumnRouterDependencies {
+export interface BoardRouterDependencies extends ColumnRouterDependencies, CardRouterDependencies {
   boardService: BoardService;
   requireAuth: RequestHandler;
   requireBoardPermission: RequireBoardPermission;
@@ -14,6 +15,7 @@ export interface BoardRouterDependencies extends ColumnRouterDependencies {
 export function createBoardRouter({
   boardService,
   columnService,
+  cardService,
   requireAuth,
   requireBoardPermission: can,
 }: BoardRouterDependencies): Router {
@@ -26,7 +28,8 @@ export function createBoardRouter({
   router.post('/', controller.create);
 
   router.get('/:boardId', can('board:view'), controller.get);
-  router.patch('/:boardId', can('board:rename'), controller.rename);
+  // Name and key; changing the key changes the keys of all cards of the board.
+  router.patch('/:boardId', can('board:rename'), controller.update);
   router.delete('/:boardId', can('board:delete'), controller.remove);
 
   router.get('/:boardId/members', can('board:view'), controller.listMembers);
@@ -39,6 +42,7 @@ export function createBoardRouter({
     '/:boardId/columns',
     createColumnRouter({ columnService, requireBoardPermission: can }),
   );
+  router.use('/:boardId/cards', createCardRouter({ cardService, requireBoardPermission: can }));
 
   return router;
 }

@@ -44,6 +44,8 @@ interface FakeOptions {
   boardExists?: boolean;
   /** Number of rank writes (create / updateRank) that fail with a collision. */
   collisions?: number;
+  /** Number of cards per column id (default 0). */
+  cardCounts?: Record<string, number>;
 }
 
 /** In-memory repository; a transaction restores the rows when its callback throws. */
@@ -79,6 +81,7 @@ function fakeColumns(initial: ColumnRecord[], options: FakeOptions = {}) {
     findInBoard: (_boardId, id) => Promise.resolve(find(id)),
     countByCategory: (_boardId, category) =>
       Promise.resolve(rows.filter((row) => row.category === category).length),
+    countCards: (_boardId, columnId) => Promise.resolve(options.cardCounts?.[columnId] ?? 0),
     create: (data) => {
       collide();
       const created = { ...record(`new-${rows.length}`, data.rank, data.category), ...data };
@@ -381,6 +384,16 @@ describe('ColumnService', () => {
 
       expect(await fake.ordered()).toEqual(['a', 'b', 'c', 'e']);
     });
+  });
+
+  it('refuses to delete a column with cards, under an exclusive lock', async () => {
+    const fake = fakeColumns(defaults(), { cardCounts: { b: 2 } });
+
+    await expect(
+      createColumnService({ columns: fake.repository }).delete(as('MEMBER'), 'b'),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'COLUMN_NOT_EMPTY' });
+    expect(fake.locks).toEqual(['exclusive']);
+    expect(await fake.ordered()).toContain('b');
   });
 
   it('maps a missing column to 404 for rename, settings and delete', async () => {

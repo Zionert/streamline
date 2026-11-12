@@ -9,8 +9,10 @@ import {
   boardMemberSchema,
   boardNameSchema,
   boardRoleSchema,
+  boardKeySchema,
   boardSchema,
   createBoardSchema,
+  renameBoardSchema,
   updateBoardMemberSchema,
   updateBoardSchema,
 } from './board.js';
@@ -51,10 +53,38 @@ describe('boardNameSchema', () => {
   });
 });
 
-describe('createBoardSchema / updateBoardSchema', () => {
-  it.each([createBoardSchema, updateBoardSchema])('requires a name', (schema) => {
-    expect(schema.safeParse({}).success).toBe(false);
-    expect(schema.parse({ name: ' Roadmap ' })).toEqual({ name: 'Roadmap' });
+describe('createBoardSchema / renameBoardSchema / updateBoardSchema', () => {
+  it.each([createBoardSchema, renameBoardSchema, updateBoardSchema])(
+    'rejects an empty body and trims the name',
+    (schema) => {
+      expect(schema.safeParse({}).success).toBe(false);
+      expect(schema.parse({ name: ' Roadmap ' })).toEqual({ name: 'Roadmap' });
+    },
+  );
+});
+
+describe('boardKeySchema', () => {
+  it.each(['SL', 'ABCDE', 'RO'])('accepts %s', (key) => {
+    expect(boardKeySchema.parse(key)).toBe(key);
+  });
+
+  it('trims and uppercases the input', () => {
+    expect(boardKeySchema.parse(' sl ')).toBe('SL');
+  });
+
+  it.each(['', 'S', 'ABCDEF', 'S1', 'S-L', 'ŻÓ', 'S L'])('rejects %j', (key) => {
+    expect(boardKeySchema.safeParse(key).success).toBe(false);
+  });
+});
+
+describe('updateBoardSchema', () => {
+  it('accepts the key alone, or together with the name', () => {
+    expect(updateBoardSchema.parse({ key: 'sl' })).toEqual({ key: 'SL' });
+    expect(updateBoardSchema.parse({ name: 'A', key: 'AB' })).toEqual({ name: 'A', key: 'AB' });
+  });
+
+  it.each([{ key: 'X' }, { name: 'A', role: 'OWNER' }, { name: '' }])('rejects %j', (body) => {
+    expect(updateBoardSchema.safeParse(body).success).toBe(false);
   });
 });
 
@@ -95,6 +125,7 @@ describe('response schemas', () => {
   const board = {
     id: 'b1',
     name: 'Roadmap',
+    key: 'RO',
     createdAt: '2026-11-11T10:00:00.000Z',
     updatedAt: '2026-11-11T10:00:00.000Z',
     role: 'OWNER',
@@ -109,6 +140,12 @@ describe('response schemas', () => {
 
   it('parses a board list', () => {
     expect(boardListResponseSchema.parse({ boards: [board] })).toEqual({ boards: [board] });
+  });
+
+  it('requires a valid board key', () => {
+    expect(boardSchema.safeParse({ ...board, key: 'R' }).success).toBe(false);
+    const { key: _key, ...withoutKey } = board;
+    expect(boardSchema.safeParse(withoutKey).success).toBe(false);
   });
 
   it('requires the current user role on a board', () => {

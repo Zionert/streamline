@@ -33,6 +33,6 @@ export function buildTestApp(db: DbClient, overrides: Partial<NodeJS.ProcessEnv>
 /** Removes all rows from application tables (the migrations table is kept). */
 export async function resetDatabase(db: DbClient): Promise<void> {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "Column", "BoardMember", "Board", "RefreshToken", "User" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "CardTransition", "Card", "Column", "BoardMember", "Board", "RefreshToken", "User" RESTART IDENTITY CASCADE',
   );
 }

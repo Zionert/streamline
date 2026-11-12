@@ -1,66 +1,32 @@
-import type { ColumnCategory, Column as ColumnRecord, Prisma } from '../generated/prisma/client.js';
-import type { DbClient } from './db.js';
+import type { ColumnCategory, Column as ColumnRecord } from '../generated/prisma/client.js';
 import {
-  isPrismaError,
-  isUniqueViolationOf,
-  PG_ERROR,
-  postgresErrorCode,
-  PRISMA_ERROR,
-} from './prisma-errors.js';
+  createBoardTransactionRunner,
+  DEFAULT_BOARD_TRANSACTION_OPTIONS,
+  lockBoardRow,
+  nullIfMissing,
+  type BoardLockMode,
+  type BoardTransactionOptions,
+  type QueryClient,
+  type RankAssignment,
+} from './board-transaction.js';
+import type { DbClient } from './db.js';
 
 export type { ColumnRecord };
-
-/**
- * How a column-changing transaction locks its board row:
- * - `shared` (`FOR SHARE`) — inserts and moves; they may run concurrently with each other and
- *   rely on the unique `(boardId, rank)` constraint to detect rank collisions,
- * - `exclusive` (`FOR NO KEY UPDATE`) — rebalancing, deletes and settings changes; excludes every
- *   other column-changing transaction of the board, so whole-board reads stay valid until commit.
- */
-export type BoardLockMode = 'shared' | 'exclusive';
-
-/**
- * Two transactions computed the same rank for one board (`rankBetween` is deterministic) and
- * the unique `(boardId, rank)` constraint rejected the later one. The caller may retry with
- * freshly read neighbours.
- */
-export class RankCollisionError extends Error {
-  constructor() {
-    super('Rank already taken in this board');
-    this.name = 'RankCollisionError';
-  }
-}
-
-/**
- * A column transaction could not get its locks or a connection in time (see
- * {@link ColumnTransactionOptions}), typically because many requests queue on one board.
- * Nothing was written; the request may be retried later.
- */
-export class BoardBusyError extends Error {
-  constructor(options?: ErrorOptions) {
-    super('The board is busy', options);
-    this.name = 'BoardBusyError';
-  }
-}
+export {
+  BoardBusyError,
+  RankCollisionError,
+  type BoardLockMode,
+  type RankAssignment,
+} from './board-transaction.js';
 
 /** The unique constraint that detects rank collisions (defined in the migration SQL). */
 const RANK_UNIQUE_CONSTRAINT = { name: 'Column_boardId_rank_key', fields: ['boardId', 'rank'] };
 
 /** Time limits of column transactions, in milliseconds. */
-export interface ColumnTransactionOptions {
-  /** Maximum wait for each lock (PostgreSQL `lock_timeout`, set per transaction). */
-  lockTimeoutMs: number;
-  /** Maximum wait for Prisma to start the transaction (connection from the pool). */
-  maxWaitMs: number;
-  /** Maximum duration of the whole transaction; must be longer than `lockTimeoutMs`. */
-  timeoutMs: number;
-}
+export type ColumnTransactionOptions = BoardTransactionOptions;
 
-export const DEFAULT_COLUMN_TRANSACTION_OPTIONS: Readonly<ColumnTransactionOptions> = {
-  lockTimeoutMs: 2000,
-  maxWaitMs: 2000,
-  timeoutMs: 5000,
-};
+export const DEFAULT_COLUMN_TRANSACTION_OPTIONS: Readonly<ColumnTransactionOptions> =
+  DEFAULT_BOARD_TRANSACTION_OPTIONS;
 
 export interface NewColumnData {
   boardId: string;
@@ -75,11 +41,6 @@ export interface ColumnSettingsData {
   wipStrict?: boolean;
 }
 
-export interface RankAssignment {
-  id: string;
-  rank: string;
-}
-
 /** Column queries; inside `ColumnRepository.transaction` they all run in that transaction. */
 export interface ColumnStore {
   /** Locks the board row until the end of the transaction; `false` if the board does not exist. */
@@ -88,6 +49,8 @@ export interface ColumnStore {
   listForBoard(boardId: string): Promise<ColumnRecord[]>;
   findInBoard(boardId: string, columnId: string): Promise<ColumnRecord | null>;
   countByCategory(boardId: string, category: ColumnCategory): Promise<number>;
+  /** Number of cards in the column. */
+  countCards(boardId: string, columnId: string): Promise<number>;
   create(data: NewColumnData): Promise<ColumnRecord>;
   /** Each method below returns `null` / `false` when the column is not in the board. */
   rename(boardId: string, columnId: string, title: string): Promise<ColumnRecord | null>;
@@ -115,29 +78,10 @@ export interface ColumnRepository extends ColumnStore {
   transaction<T>(fn: (store: ColumnStore) => Promise<T>): Promise<T>;
 }
 
-type QueryClient = DbClient | Prisma.TransactionClient;
-
-async function nullIfMissing<T>(query: Promise<T>): Promise<T | null> {
-  try {
-    return await query;
-  } catch (err) {
-    if (isPrismaError(err, PRISMA_ERROR.RECORD_NOT_FOUND)) {
-      return null;
-    }
-    throw err;
-  }
-}
-
 function createColumnStore(db: QueryClient): ColumnStore {
   return {
-    async lockBoard(boardId, mode) {
-      const rows =
-        mode === 'shared'
-          ? await db.$queryRaw<{ id: string }[]>`
-              SELECT "id" FROM "Board" WHERE "id" = ${boardId} FOR SHARE`
-          : await db.$queryRaw<{ id: string }[]>`
-              SELECT "id" FROM "Board" WHERE "id" = ${boardId} FOR NO KEY UPDATE`;
-      return rows.length > 0;
+    lockBoard(boardId, mode) {
+      return lockBoardRow(db, boardId, mode);
     },
 
     listForBoard(boardId) {
@@ -151,6 +95,10 @@ function createColumnStore(db: QueryClient): ColumnStore {
 
     countByCategory(boardId, category) {
       return db.column.count({ where: { boardId, category } });
+    },
+
+    countCards(boardId, columnId) {
+      return db.card.count({ where: { boardId, columnId } });
     },
 
     create(data) {
@@ -191,37 +139,9 @@ export function createColumnRepository(
   db: DbClient,
   options: Partial<ColumnTransactionOptions> = {},
 ): ColumnRepository {
-  const { lockTimeoutMs, maxWaitMs, timeoutMs } = {
-    ...DEFAULT_COLUMN_TRANSACTION_OPTIONS,
-    ...options,
-  };
-  const lockTimeout = `${String(lockTimeoutMs)}ms`;
-
+  const run = createBoardTransactionRunner(db, RANK_UNIQUE_CONSTRAINT, options);
   return {
     ...createColumnStore(db),
-
-    async transaction(fn) {
-      try {
-        return await db.$transaction(
-          async (tx) => {
-            // `is_local = true` limits the setting to this transaction (like SET LOCAL).
-            await tx.$queryRaw`SELECT set_config('lock_timeout', ${lockTimeout}, true)`;
-            return fn(createColumnStore(tx));
-          },
-          { maxWait: maxWaitMs, timeout: timeoutMs },
-        );
-      } catch (err) {
-        if (isUniqueViolationOf(err, RANK_UNIQUE_CONSTRAINT)) {
-          throw new RankCollisionError();
-        }
-        if (
-          postgresErrorCode(err) === PG_ERROR.LOCK_NOT_AVAILABLE ||
-          isPrismaError(err, PRISMA_ERROR.TRANSACTION_API_ERROR)
-        ) {
-          throw new BoardBusyError({ cause: err });
-        }
-        throw err;
-      }
-    },
+    transaction: (fn) => run((tx) => fn(createColumnStore(tx))),
   };
 }

@@ -14,15 +14,18 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(cuid())
+  id            String           @id @default(cuid())
   /// Stored normalized (trimmed, lowercase).
-  email         String         @unique
+  email         String           @unique
   passwordHash  String
   name          String
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
   refreshTokens RefreshToken[]
   memberships   BoardMember[]
+  ownedBoards   Board[]          @relation("BoardOwner")
+  assignedCards Card[]           @relation("CardAssignee")
+  cardMoves     CardTransition[] @relation("CardTransitionMovedBy")
 }
 
 /// Opaque refresh tokens; only the SHA-256 hash of the token is stored.
@@ -51,15 +54,26 @@ enum BoardRole {
 }
 
 model Board {
-  id        String        @id @default(cuid())
-  name      String
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  members   BoardMember[]
-  columns   Column[]
+  id             String           @id @default(cuid())
+  name           String
+  /// Prefix of card keys (e.g. "SL" in "SL-12"): 2-5 uppercase letters, unique per owner.
+  key            String
+  /// The user holding the OWNER membership; kept in sync with it.
+  ownerId        String
+  owner          User             @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  /// Number given to the next card; only ever incremented, so numbers are never reused.
+  nextCardNumber Int              @default(1)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  members        BoardMember[]
+  columns        Column[]
+  cards          Card[]
+  transitions    CardTransition[]
+
+  @@unique([ownerId, key])
 }
 
-/// Membership of a user in a board. Each board has exactly one OWNER, which is additionally
+/// Membership of a user in a board. Each board has at most one OWNER, which is
 /// enforced by the partial unique index "BoardMember_one_owner_per_board" (defined in the
 /// migration SQL, as Prisma cannot express partial indexes).
 model BoardMember {
@@ -92,18 +106,85 @@ enum ColumnCategory {
 //   of a board in a single UPDATE. Prisma does not diff collation or deferrability, so
 //   `prisma migrate dev` reports no drift.
 model Column {
-  id        String         @id @default(cuid())
-  boardId   String
-  board     Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  title     String
-  rank      String
-  category  ColumnCategory @default(TODO)
+  id              String           @id @default(cuid())
+  boardId         String
+  board           Board            @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  title           String
+  rank            String
+  category        ColumnCategory   @default(TODO)
   /// Maximum number of cards; null = no limit.
-  wipLimit  Int?
+  wipLimit        Int?
   /// When true the WIP limit blocks adding cards instead of only warning.
-  wipStrict Boolean        @default(false)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  wipStrict       Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  /// Deleting a column that still holds cards is refused by the service; NO ACTION guards it too.
+  cards           Card[]
+  /// Transitions keep their history when a column is deleted (the reference becomes null).
+  transitionsFrom CardTransition[] @relation("CardTransitionFrom")
+  transitionsTo   CardTransition[] @relation("CardTransitionTo")
 
   @@unique([boardId, rank])
+}
+
+enum CardPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// Card in a column, ordered by `rank` within the column. Like Column, hand-written in the
+// migration SQL: "rank" uses COLLATE "C" and "Card_columnId_rank_key" is a DEFERRABLE INITIALLY
+// IMMEDIATE unique constraint (a rebalance rewrites all ranks of a column in one UPDATE).
+model Card {
+  id          String           @id @default(cuid())
+  /// Denormalized from the column for board-wide queries.
+  boardId     String
+  board       Board            @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  columnId    String
+  column      Column           @relation(fields: [columnId], references: [id], onDelete: NoAction)
+  /// Sequential per board (from Board.nextCardNumber); the card key is "<board key>-<number>".
+  number      Int
+  title       String
+  description String?
+  rank        String
+  priority    CardPriority     @default(MEDIUM)
+  assigneeId  String?
+  assignee    User?            @relation("CardAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  /// Calendar date without time zone.
+  dueDate     DateTime?        @db.Date
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  transitions CardTransition[]
+
+  @@unique([boardId, number])
+  @@unique([columnId, rank])
+  @@index([assigneeId])
+}
+
+/// Every move of a card into a column (including its creation, with fromColumnId = null);
+/// the source of flow analytics. Written in the same transaction as the move.
+model CardTransition {
+  id           String   @id @default(cuid())
+  cardId       String
+  card         Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  boardId      String
+  board        Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// Null for the creation of the card, or when the column was deleted later.
+  fromColumnId String?
+  fromColumn   Column?  @relation("CardTransitionFrom", fields: [fromColumnId], references: [id], onDelete: SetNull)
+  /// Always written; null only when the column was deleted later.
+  toColumnId   String?
+  toColumn     Column?  @relation("CardTransitionTo", fields: [toColumnId], references: [id], onDelete: SetNull)
+  /// Null when the user's account was deleted later.
+  movedById    String?
+  movedBy      User?    @relation("CardTransitionMovedBy", fields: [movedById], references: [id], onDelete: SetNull)
+  movedAt      DateTime @default(now())
+
+  @@index([boardId, movedAt])
+  @@index([cardId, movedAt])
+  /// Used by ON DELETE SET NULL when a column is deleted.
+  @@index([fromColumnId])
+  @@index([toColumnId])
 }

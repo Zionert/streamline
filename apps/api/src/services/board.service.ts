@@ -2,6 +2,7 @@ import {
   BOARD_ERROR_CODES,
   canLeaveBoard,
   DEFAULT_BOARD_COLUMNS,
+  pickBoardKey,
   rankSequenceBetween,
   type AddBoardMemberInput,
   type Board,
@@ -28,6 +29,7 @@ import {
   BOARD_NOT_FOUND_MESSAGE,
   type BoardMembership,
 } from './board-access.service.js';
+import { busyToServiceUnavailable } from './ranked-write.js';
 
 /**
  * Board and membership use cases. Methods taking a `BoardMembership` expect the caller's
@@ -35,10 +37,14 @@ import {
  */
 export interface BoardService {
   listForUser(userId: string): Promise<Board[]>;
-  /** Creates a board owned by the user, with the default columns. */
+  /**
+   * Creates a board owned by the user, with the default columns and a key generated from the
+   * name (the first candidate not used by another board of the user).
+   */
   create(userId: string, input: CreateBoardInput): Promise<Board>;
   get(membership: BoardMembership): Promise<Board>;
-  rename(membership: BoardMembership, input: UpdateBoardInput): Promise<Board>;
+  /** Changes the name and/or the key (409 `BOARD_KEY_TAKEN` if the owner uses it elsewhere). */
+  update(membership: BoardMembership, input: UpdateBoardInput): Promise<Board>;
   delete(membership: BoardMembership): Promise<void>;
   listMembers(membership: BoardMembership): Promise<BoardMember[]>;
   /** Adds a registered user, found by email, to the board. */
@@ -61,6 +67,9 @@ export interface BoardServiceDependencies {
 
 const MEMBER_NOT_FOUND_MESSAGE = 'Member not found';
 
+/** Attempts to create a board when concurrent requests keep taking the chosen key. */
+export const MAX_BOARD_KEY_ATTEMPTS = 5;
+
 /** The default columns of a new board with evenly spread ranks. */
 export function defaultBoardColumns(): InitialColumnData[] {
   const ranks = rankSequenceBetween(null, null, DEFAULT_BOARD_COLUMNS.length);
@@ -77,6 +86,7 @@ export function toBoard(board: BoardRecord, role: BoardRole): Board {
   return {
     id: board.id,
     name: board.name,
+    key: board.key,
     createdAt: board.createdAt.toISOString(),
     updatedAt: board.updatedAt.toISOString(),
     role,
@@ -114,6 +124,15 @@ export function createBoardService({
     throw new ForbiddenError(ownerMessage);
   }
 
+  /** Removes a non-owner member (and unassigns their cards); 503 `BOARD_BUSY` on lock timeout. */
+  async function removeUnlessOwner(boardId: string, userId: string): Promise<boolean> {
+    try {
+      return await members.removeUnlessOwner(boardId, userId);
+    } catch (err) {
+      throw busyToServiceUnavailable(err);
+    }
+  }
+
   return {
     async listForUser(userId) {
       const list = await boards.listForUser(userId);
@@ -121,8 +140,19 @@ export function createBoardService({
     },
 
     async create(userId, { name }) {
-      const board = await boards.createWithOwner(name, userId, defaultBoardColumns());
-      return toBoard(board, 'OWNER');
+      const taken = new Set(await boards.listKeysForOwner(userId));
+      const columns = defaultBoardColumns();
+      for (let attempt = 1; attempt <= MAX_BOARD_KEY_ATTEMPTS; attempt++) {
+        const key = pickBoardKey(name, taken);
+        const result = await boards.createWithOwner({ name, key, ownerId: userId, columns });
+        if (result.status === 'created') return toBoard(result.board, 'OWNER');
+        // A concurrent request of the same user took the key meanwhile; try the next candidate.
+        taken.add(key);
+      }
+      throw new ConflictError(
+        'Could not choose a unique board key; please try again',
+        BOARD_ERROR_CODES.BOARD_KEY_TAKEN,
+      );
     },
 
     async get(membership) {
@@ -134,13 +164,20 @@ export function createBoardService({
       return toBoard(board, membership.role);
     },
 
-    async rename(membership, { name }) {
+    async update(membership, { name, key }) {
       assertBoardPermission(membership, 'board:rename');
-      const board = await boards.rename(membership.boardId, name);
-      if (!board) {
-        throw new NotFoundError(BOARD_NOT_FOUND_MESSAGE);
+      const result = await boards.update(membership.boardId, { name, key });
+      switch (result.status) {
+        case 'updated':
+          return toBoard(result.board, membership.role);
+        case 'not-found':
+          throw new NotFoundError(BOARD_NOT_FOUND_MESSAGE);
+        case 'key-taken':
+          throw new ConflictError(
+            'Another board of the owner already uses this key',
+            BOARD_ERROR_CODES.BOARD_KEY_TAKEN,
+          );
       }
-      return toBoard(board, membership.role);
     },
 
     async delete(membership) {
@@ -204,14 +241,14 @@ export function createBoardService({
             BOARD_ERROR_CODES.OWNER_CANNOT_LEAVE,
           );
         }
-        if (!(await members.removeUnlessOwner(boardId, userId))) {
+        if (!(await removeUnlessOwner(boardId, userId))) {
           throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
         }
         return;
       }
 
       assertBoardPermission(membership, 'members:manage');
-      if (!(await members.removeUnlessOwner(boardId, targetUserId))) {
+      if (!(await removeUnlessOwner(boardId, targetUserId))) {
         await failForTarget(boardId, targetUserId, 'The board owner cannot be removed');
       }
     },

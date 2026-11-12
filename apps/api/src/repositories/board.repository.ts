@@ -4,7 +4,7 @@ import type {
   ColumnCategory,
 } from '../generated/prisma/client.js';
 import type { DbClient } from './db.js';
-import { isPrismaError, PRISMA_ERROR } from './prisma-errors.js';
+import { isPrismaError, isUniqueViolationOf, PRISMA_ERROR } from './prisma-errors.js';
 
 export type { BoardRecord };
 
@@ -21,37 +21,76 @@ export interface InitialColumnData {
   category: ColumnCategory;
 }
 
+export interface NewBoardData {
+  name: string;
+  /** Must be unique among the boards of the owner. */
+  key: string;
+  ownerId: string;
+  columns: readonly InitialColumnData[];
+}
+
+export interface BoardChanges {
+  name?: string | undefined;
+  key?: string | undefined;
+}
+
+export type CreateBoardResult =
+  | { status: 'created'; board: BoardRecord }
+  /** Another board of the owner already has the key. */
+  | { status: 'key-taken' };
+
+export type UpdateBoardResult =
+  { status: 'updated'; board: BoardRecord } | { status: 'not-found' } | { status: 'key-taken' };
+
+/** The unique constraint on board keys per owner. */
+const KEY_UNIQUE_CONSTRAINT = { name: 'Board_ownerId_key_key', fields: ['ownerId', 'key'] };
+
 export interface BoardRepository {
-  /** Creates the board with its initial columns and makes `ownerId` its OWNER atomically. */
-  createWithOwner(
-    name: string,
-    ownerId: string,
-    columns: readonly InitialColumnData[],
-  ): Promise<BoardRecord>;
+  /**
+   * Creates the board with its initial columns and makes `ownerId` its OWNER (and `Board.ownerId`)
+   * atomically.
+   */
+  createWithOwner(data: NewBoardData): Promise<CreateBoardResult>;
   findById(id: string): Promise<BoardRecord | null>;
+  /** Keys of all boards owned by the user. */
+  listKeysForOwner(ownerId: string): Promise<string[]>;
   /** Boards the user is a member of, newest first. */
   listForUser(userId: string): Promise<BoardWithRole[]>;
-  /** Returns `null` when the board does not exist. */
-  rename(id: string, name: string): Promise<BoardRecord | null>;
+  update(id: string, changes: BoardChanges): Promise<UpdateBoardResult>;
   /** Deletes the board with its memberships; returns `false` when it did not exist. */
   delete(id: string): Promise<boolean>;
 }
 
 export function createBoardRepository(db: DbClient): BoardRepository {
   return {
-    createWithOwner(name, ownerId, columns) {
-      // A nested create runs in a single transaction.
-      return db.board.create({
-        data: {
-          name,
-          members: { create: { userId: ownerId, role: 'OWNER' } },
-          columns: { create: [...columns] },
-        },
-      });
+    async createWithOwner({ name, key, ownerId, columns }) {
+      try {
+        // A nested create runs in a single transaction.
+        const board = await db.board.create({
+          data: {
+            name,
+            key,
+            ownerId,
+            members: { create: { userId: ownerId, role: 'OWNER' } },
+            columns: { create: [...columns] },
+          },
+        });
+        return { status: 'created', board };
+      } catch (err) {
+        if (isUniqueViolationOf(err, KEY_UNIQUE_CONSTRAINT)) {
+          return { status: 'key-taken' };
+        }
+        throw err;
+      }
     },
 
     findById(id) {
       return db.board.findUnique({ where: { id } });
+    },
+
+    async listKeysForOwner(ownerId) {
+      const boards = await db.board.findMany({ where: { ownerId }, select: { key: true } });
+      return boards.map((board) => board.key);
     },
 
     async listForUser(userId) {
@@ -63,12 +102,16 @@ export function createBoardRepository(db: DbClient): BoardRepository {
       return memberships.map(({ board, role }) => ({ board, role }));
     },
 
-    async rename(id, name) {
+    async update(id, { name, key }) {
       try {
-        return await db.board.update({ where: { id }, data: { name } });
+        const board = await db.board.update({ where: { id }, data: { name, key } });
+        return { status: 'updated', board };
       } catch (err) {
         if (isPrismaError(err, PRISMA_ERROR.RECORD_NOT_FOUND)) {
-          return null;
+          return { status: 'not-found' };
+        }
+        if (isUniqueViolationOf(err, KEY_UNIQUE_CONSTRAINT)) {
+          return { status: 'key-taken' };
         }
         throw err;
       }

@@ -2,10 +2,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   createBoardSchema,
   hasBoardPermission,
-  updateBoardSchema,
+  renameBoardSchema,
   type Board,
   type CreateBoardInput,
-  type UpdateBoardInput,
+  type RenameBoardInput,
 } from '@streamline/shared';
 import { Ellipsis, Pencil, Plus, SquareKanban, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
@@ -324,11 +324,11 @@ function RenameBoardForm({ board, onDone }: { board: Board; onDone: () => void }
     setError,
     formState: { errors, isSubmitting },
   } = useForm({
-    resolver: zodResolver(updateBoardSchema),
+    resolver: zodResolver(renameBoardSchema),
     defaultValues: { name: board.name },
   });
 
-  const onSubmit = async ({ name }: UpdateBoardInput) => {
+  const onSubmit = async ({ name }: RenameBoardInput) => {
     try {
       await renameBoard(board.id, name);
       onDone();

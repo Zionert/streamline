@@ -10,11 +10,25 @@ import type {
 import type { BoardRecord, BoardRepository } from '../repositories/board.repository.js';
 import type { User } from '../repositories/user.repository.js';
 import { createBoardAccessService, type BoardMembership } from './board-access.service.js';
-import { createBoardService, defaultBoardColumns } from './board.service.js';
+import {
+  createBoardService,
+  defaultBoardColumns,
+  MAX_BOARD_KEY_ATTEMPTS,
+} from './board.service.js';
 
 const now = new Date('2026-11-11T10:00:00.000Z');
 
-const boardRecord: BoardRecord = { id: 'board-1', name: 'Roadmap', createdAt: now, updatedAt: now };
+const boardRecord: BoardRecord = {
+  id: 'board-1',
+  name: 'Roadmap',
+  key: 'RO',
+  ownerId: 'user-1',
+  nextCardNumber: 1,
+  createdAt: now,
+  updatedAt: now,
+};
+
+const created = { status: 'created' as const, board: boardRecord };
 
 function memberRecord(userId: string, role: BoardRole): BoardMemberRecord {
   return { id: `m-${userId}`, boardId: 'board-1', userId, role, createdAt: now, updatedAt: now };
@@ -35,10 +49,11 @@ const candidate: User = {
 
 function fakeBoards(overrides: Partial<BoardRepository> = {}): BoardRepository {
   return {
-    createWithOwner: vi.fn(() => Promise.resolve(boardRecord)),
+    createWithOwner: vi.fn(() => Promise.resolve(created)),
     findById: vi.fn(() => Promise.resolve(boardRecord)),
+    listKeysForOwner: vi.fn(() => Promise.resolve([])),
     listForUser: vi.fn(() => Promise.resolve([])),
-    rename: vi.fn(() => Promise.resolve(boardRecord)),
+    update: vi.fn(() => Promise.resolve({ status: 'updated' as const, board: boardRecord })),
     delete: vi.fn(() => Promise.resolve(true)),
     ...overrides,
   };
@@ -79,6 +94,7 @@ describe('BoardService', () => {
     expect(board).toEqual({
       id: 'board-1',
       name: 'Roadmap',
+      key: 'RO',
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       role: 'OWNER',
@@ -86,13 +102,18 @@ describe('BoardService', () => {
   });
 
   it('creates the board with the four default columns in order', async () => {
-    const createWithOwner = vi.fn(() => Promise.resolve(boardRecord));
+    const createWithOwner = vi.fn(() => Promise.resolve(created));
 
     await buildService({ boards: fakeBoards({ createWithOwner }) }).create('user-1', {
       name: 'Roadmap',
     });
 
-    expect(createWithOwner).toHaveBeenCalledWith('Roadmap', 'user-1', expect.any(Array));
+    expect(createWithOwner).toHaveBeenCalledWith({
+      name: 'Roadmap',
+      key: 'RO',
+      ownerId: 'user-1',
+      columns: expect.any(Array) as unknown,
+    });
     const columns = defaultBoardColumns();
     expect(columns.map(({ title, category }) => ({ title, category }))).toEqual([
       { title: 'Backlog', category: 'BACKLOG' },
@@ -108,36 +129,88 @@ describe('BoardService', () => {
 
   it('re-checks the role even when called without the route guard', async () => {
     const deleteBoard = vi.fn(() => Promise.resolve(true));
-    const renameBoard = vi.fn(() => Promise.resolve(boardRecord));
+    const updateBoard = vi.fn(() =>
+      Promise.resolve({ status: 'updated' as const, board: boardRecord }),
+    );
     const service = buildService({
-      boards: fakeBoards({ delete: deleteBoard, rename: renameBoard }),
+      boards: fakeBoards({ delete: deleteBoard, update: updateBoard }),
     });
 
     await expect(service.delete(as('ADMIN'))).rejects.toBeInstanceOf(ForbiddenError);
-    await expect(service.rename(as('VIEWER'), { name: 'X' })).rejects.toBeInstanceOf(
+    await expect(service.update(as('VIEWER'), { name: 'X' })).rejects.toBeInstanceOf(
       ForbiddenError,
     );
     await expect(
       service.addMember(as('MEMBER'), { email: candidate.email, role: 'MEMBER' }),
     ).rejects.toBeInstanceOf(ForbiddenError);
     expect(deleteBoard).not.toHaveBeenCalled();
-    expect(renameBoard).not.toHaveBeenCalled();
+    expect(updateBoard).not.toHaveBeenCalled();
   });
 
   it.each([
     ['get', (s: ReturnType<typeof buildService>) => s.get(as('VIEWER'))],
-    ['rename', (s: ReturnType<typeof buildService>) => s.rename(as('OWNER'), { name: 'X' })],
+    ['update', (s: ReturnType<typeof buildService>) => s.update(as('OWNER'), { name: 'X' })],
     ['delete', (s: ReturnType<typeof buildService>) => s.delete(as('OWNER'))],
   ])('%s returns 404 when the board disappeared concurrently', async (_name, call) => {
     const service = buildService({
       boards: fakeBoards({
         findById: () => Promise.resolve(null),
-        rename: () => Promise.resolve(null),
+        update: () => Promise.resolve({ status: 'not-found' as const }),
         delete: () => Promise.resolve(false),
       }),
     });
 
     await expect(call(service)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  describe('board keys', () => {
+    it("skips keys of the owner's other boards", async () => {
+      const createWithOwner = vi.fn(() => Promise.resolve(created));
+      const boards = fakeBoards({
+        createWithOwner,
+        listKeysForOwner: () => Promise.resolve(['SB', 'SBO']),
+      });
+
+      await buildService({ boards }).create('user-1', { name: 'Sprint Board' });
+
+      expect(createWithOwner).toHaveBeenCalledWith(expect.objectContaining({ key: 'SBOA' }));
+    });
+
+    it('tries the next candidate when a concurrent request takes the key', async () => {
+      const createWithOwner = vi
+        .fn<BoardRepository['createWithOwner']>()
+        .mockResolvedValueOnce({ status: 'key-taken' })
+        .mockResolvedValueOnce({ status: 'key-taken' })
+        .mockResolvedValue(created);
+
+      await buildService({ boards: fakeBoards({ createWithOwner }) }).create('user-1', {
+        name: 'Roadmap',
+      });
+
+      expect(createWithOwner.mock.calls.map(([data]) => data.key)).toEqual(['RO', 'ROA', 'ROAD']);
+    });
+
+    it(`gives up with BOARD_KEY_TAKEN after ${String(MAX_BOARD_KEY_ATTEMPTS)} attempts`, async () => {
+      const createWithOwner = vi.fn(() => Promise.resolve({ status: 'key-taken' as const }));
+      const service = buildService({ boards: fakeBoards({ createWithOwner }) });
+
+      await expect(service.create('user-1', { name: 'Roadmap' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'BOARD_KEY_TAKEN',
+      });
+      expect(createWithOwner).toHaveBeenCalledTimes(MAX_BOARD_KEY_ATTEMPTS);
+    });
+
+    it('maps a key used by another board of the owner to 409 BOARD_KEY_TAKEN', async () => {
+      const service = buildService({
+        boards: fakeBoards({ update: () => Promise.resolve({ status: 'key-taken' as const }) }),
+      });
+
+      await expect(service.update(as('ADMIN'), { key: 'XY' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'BOARD_KEY_TAKEN',
+      });
+    });
   });
 
   describe('addMember', () => {
