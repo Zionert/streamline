@@ -34,7 +34,7 @@ describe('LoginPage', () => {
     expect(mock.current.requests).toHaveLength(0);
   });
 
-  it('logs in, stores the session and opens the home page', async () => {
+  it('logs in, stores the session and opens the boards page', async () => {
     mock.current.on('POST', '/auth/login', { status: 200, data: sessionWith('token-1') });
     const { router } = renderLogin();
 
@@ -42,8 +42,10 @@ describe('LoginPage', () => {
     fillIn('Password', 'secret-password');
     submit();
 
-    expect(await screen.findByText(testUser.name)).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/');
+    expect(
+      await screen.findByRole('button', { name: `Account menu for ${testUser.name}` }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/boards');
     expect(mock.current.requestsTo('POST', '/auth/login')[0]?.data).toEqual({
       email: 'jan@example.com',
       password: 'secret-password',
@@ -56,14 +58,16 @@ describe('LoginPage', () => {
 
   it('returns to the originally requested location after login', async () => {
     mock.current.on('POST', '/auth/login', { status: 200, data: sessionWith('token-1') });
-    const { router } = renderLogin({ from: { pathname: '/', search: '?view=board', hash: '' } });
+    const { router } = renderLogin({
+      from: { pathname: '/boards', search: '?view=board', hash: '' },
+    });
 
     fillIn('Email', 'jan@example.com');
     fillIn('Password', 'secret-password');
     submit();
 
     await waitFor(() => expect(router.state.location.search).toBe('?view=board'));
-    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.pathname).toBe('/boards');
   });
 
   it('shows the server error for invalid credentials', async () => {
@@ -104,7 +108,9 @@ describe('LoginPage', () => {
 
     expect(await screen.findByRole('button', { name: 'Logging in...' })).toBeDisabled();
     gate.resolve({ status: 200, data: sessionWith('token-1') });
-    expect(await screen.findByText(testUser.name)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: `Account menu for ${testUser.name}` }),
+    ).toBeInTheDocument();
   });
 
   it('links to the registration page', async () => {
@@ -113,6 +119,8 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Create one' }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/register'));
-    expect(screen.getByRole('heading', { name: 'Create an account' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Create your StreamLine account' }),
+    ).toBeInTheDocument();
   });
 });

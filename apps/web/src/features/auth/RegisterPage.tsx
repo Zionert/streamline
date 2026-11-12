@@ -37,7 +37,7 @@ export function RegisterPage() {
 
   return (
     <AuthCard
-      title="Create an account"
+      title="Create your StreamLine account"
       description="Start organizing your work with StreamLine."
       footer={
         <>
@@ -85,7 +85,7 @@ export function RegisterPage() {
           error={errors.password?.message}
           {...register('password')}
         />
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
           {isSubmitting ? 'Creating account...' : 'Create account'}
         </Button>
       </form>

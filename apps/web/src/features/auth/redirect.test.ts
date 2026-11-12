@@ -19,7 +19,7 @@ describe('getRedirectTarget', () => {
     ['backslash protocol-relative URL', { from: { pathname: '/\\evil.example' } }],
     ['login page', { from: { pathname: '/login' } }],
     ['register page', { from: { pathname: '/register' } }],
-  ])('falls back to home for %s', (_name, state) => {
-    expect(getRedirectTarget(state)).toBe('/');
+  ])('falls back to the boards page for %s', (_name, state) => {
+    expect(getRedirectTarget(state)).toBe('/boards');
   });
 });

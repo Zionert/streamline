@@ -20,7 +20,7 @@ function renderGuarded(initialEntry: InitialEntry) {
       {
         element: <ProtectedRoute />,
         children: [
-          { path: '/', element: <p>Home page</p> },
+          { path: '/boards', element: <p>Home page</p> },
           { path: '/boards/:id', element: <p>Board page</p> },
         ],
       },
@@ -98,12 +98,12 @@ describe('GuestRoute', () => {
     expect(screen.getByText(/Login page/)).toBeInTheDocument();
   });
 
-  it('sends a logged-in user home', () => {
+  it('sends a logged-in user to the boards page', () => {
     useAuthStore.getState().setSession(sessionWith('token-1'));
 
     const router = renderGuarded('/login');
 
-    expect(router.state.location.pathname).toBe('/');
+    expect(router.state.location.pathname).toBe('/boards');
     expect(screen.getByText('Home page')).toBeInTheDocument();
   });
 

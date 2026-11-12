@@ -41,7 +41,7 @@ describe('RegisterPage', () => {
     expect(mock.current.requests).toHaveLength(0);
   });
 
-  it('creates the account, stores the session and opens the home page', async () => {
+  it('creates the account, stores the session and opens the boards page', async () => {
     mock.current.on('POST', '/auth/register', { status: 201, data: sessionWith('token-1') });
     const { router } = renderRegister();
 
@@ -50,8 +50,10 @@ describe('RegisterPage', () => {
     fillIn('Password', 'secret-password');
     submit();
 
-    expect(await screen.findByText(testUser.name)).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/');
+    expect(
+      await screen.findByRole('button', { name: `Account menu for ${testUser.name}` }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/boards');
     expect(mock.current.requestsTo('POST', '/auth/register')[0]?.data).toEqual({
       name: 'Jan Kowalski',
       email: 'jan@example.com',

@@ -37,8 +37,8 @@ export function LoginPage() {
 
   return (
     <AuthCard
-      title="Log in"
-      description="Welcome back to StreamLine."
+      title="Log in to StreamLine"
+      description="Welcome back. Enter your details to continue."
       footer={
         <>
           No account yet?{' '}
@@ -78,7 +78,7 @@ export function LoginPage() {
           error={errors.password?.message}
           {...register('password')}
         />
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
           {isSubmitting ? 'Logging in...' : 'Log in'}
         </Button>
       </form>

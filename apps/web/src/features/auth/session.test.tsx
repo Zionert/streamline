@@ -56,7 +56,9 @@ describe('session restore on app start', () => {
     renderApp('/', { strict: true });
 
     expect(screen.getByRole('status')).toHaveTextContent('Restoring session...');
-    expect(await screen.findByText(testUser.name)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: `Account menu for ${testUser.name}` }),
+    ).toBeInTheDocument();
     expect(mock.current.requestsTo('POST', '/auth/refresh')).toHaveLength(1);
   });
 
@@ -65,7 +67,9 @@ describe('session restore on app start', () => {
 
     const { router } = renderApp('/', { strict: true });
 
-    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Log in to StreamLine' }),
+    ).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
     expect(mock.current.requestsTo('POST', '/auth/refresh')).toHaveLength(1);
   });
