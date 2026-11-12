@@ -38,9 +38,9 @@ export function createBoardController(boardService: BoardService) {
       res.json({ board: await boardService.get(getBoardMembership(res)) });
     },
 
-    rename: async (req: Request, res: Response<BoardResponse>): Promise<void> => {
+    update: async (req: Request, res: Response<BoardResponse>): Promise<void> => {
       const input = updateBoardSchema.parse(req.body);
-      res.json({ board: await boardService.rename(getBoardMembership(res), input) });
+      res.json({ board: await boardService.update(getBoardMembership(res), input) });
     },
 
     remove: async (_req: Request, res: Response): Promise<void> => {

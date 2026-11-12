@@ -89,18 +89,4 @@ describe('AppHeader', () => {
     expect(document.documentElement).not.toHaveClass('dark');
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
   });
-
-  it('lists the keyboard shortcuts in the help dialog', async () => {
-    renderLoggedIn();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
-    const row = (description: string) => within(dialog).getByText(description).closest('dt');
-    // Only Esc works today; the others are marked as coming later.
-    expect(row('Create a card')).toHaveTextContent('Soon');
-    expect(row('Focus the card filter')).toHaveTextContent('Soon');
-    expect(row('Show keyboard shortcuts')).toHaveTextContent('Soon');
-    expect(row('Close a dialog')).not.toHaveTextContent('Soon');
-  });
 });

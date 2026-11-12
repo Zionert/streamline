@@ -142,9 +142,6 @@ function BoardView({ board }: { board: Board }) {
         </div>
         <h1 className="text-2xl font-semibold">Board</h1>
         <BoardToolbar members={members} />
-        <p className="text-xs text-subtle">
-          Press <kbd>Shift</kbd> + <kbd>N</kbd> to create a card
-        </p>
         {/* `relative` makes this scroller the containing block of visually hidden (absolute)
             labels inside columns; otherwise they escape it and widen the whole page. */}
         <div className="relative flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-4">

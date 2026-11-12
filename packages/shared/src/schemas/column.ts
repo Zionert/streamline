@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { rankSchema } from '../rank/keys.js';
+import { distinctNeighbors, distinctNeighborsIssue, positionShape } from './position.js';
 
 /**
  * Workflow category of a column. Flow analytics and WIP rules look at the category, never at
@@ -37,9 +38,6 @@ export const DEFAULT_BOARD_COLUMNS: readonly { title: string; category: ColumnCa
   { title: 'Done', category: 'DONE' },
 ];
 
-/** Id of a neighbouring column; `null` stands for the open end of the list. */
-const neighborIdSchema = z.string().min(1).nullable().optional();
-
 /**
  * Position of a column relative to its future neighbours. The server computes the `rank`
  * from the persisted ranks of these neighbours; clients never send ranks.
@@ -55,23 +53,7 @@ const neighborIdSchema = z.string().min(1).nullable().optional();
  * pair still fails with `INVALID_POSITION`) and the column is placed directly after `afterId`.
  * Neighbours must belong to the same board and must not be the moved column.
  */
-const positionShape = {
-  afterId: neighborIdSchema,
-  beforeId: neighborIdSchema,
-};
-
-interface PositionInput {
-  afterId?: string | null | undefined;
-  beforeId?: string | null | undefined;
-}
-
-const distinctNeighbors = (value: PositionInput): boolean =>
-  typeof value.afterId !== 'string' || value.afterId !== value.beforeId;
-
-const distinctNeighborsIssue = {
-  message: 'afterId and beforeId must be different columns',
-  path: ['beforeId'],
-};
+const distinctColumnsIssue = distinctNeighborsIssue('columns');
 
 /**
  * Body of `POST /boards/:boardId/columns`. Without `afterId`/`beforeId` the column is appended
@@ -80,7 +62,7 @@ const distinctNeighborsIssue = {
  */
 export const createColumnSchema = z
   .strictObject({ title: columnTitleSchema, ...positionShape })
-  .refine(distinctNeighbors, distinctNeighborsIssue);
+  .refine(distinctNeighbors, distinctColumnsIssue);
 
 export type CreateColumnInput = z.infer<typeof createColumnSchema>;
 
@@ -108,7 +90,7 @@ export const moveColumnSchema = z
   .refine((value) => value.afterId !== undefined || value.beforeId !== undefined, {
     message: 'afterId or beforeId is required',
   })
-  .refine(distinctNeighbors, distinctNeighborsIssue);
+  .refine(distinctNeighbors, distinctColumnsIssue);
 
 export type MoveColumnInput = z.infer<typeof moveColumnSchema>;
 
@@ -168,6 +150,8 @@ export const COLUMN_ERROR_CODES = {
   RANK_CONFLICT: 'RANK_CONFLICT',
   /** The board must keep at least one column with category DONE. */
   LAST_DONE_COLUMN: 'LAST_DONE_COLUMN',
+  /** The column still holds cards; move or delete them first. */
+  COLUMN_NOT_EMPTY: 'COLUMN_NOT_EMPTY',
   /**
    * 503: too many concurrent changes of the board's columns; nothing was changed and the
    * request may be retried after a short pause.

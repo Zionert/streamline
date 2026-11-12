@@ -17,6 +17,7 @@ export function boardWith(overrides: Partial<Board> = {}): Board {
   return {
     id: 'board-1',
     name: 'Sprint board',
+    key: 'SB',
     createdAt: TIMESTAMP,
     updatedAt: TIMESTAMP,
     role: 'OWNER',

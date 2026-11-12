@@ -17,6 +17,13 @@ export class ValidationError extends AppError {
   }
 }
 
+/** The request is well-formed but refers to something invalid; carries a domain code. */
+export class BadRequestError extends AppError {
+  constructor(message: string, code = 'BAD_REQUEST') {
+    super(400, code, message);
+  }
+}
+
 export class UnauthorizedError extends AppError {
   constructor(message = 'Authentication required') {
     super(401, 'UNAUTHORIZED', message);

@@ -79,6 +79,8 @@ async function seedBoard(): Promise<Fixture> {
   const board = await db.board.create({
     data: {
       name: 'Roadmap',
+      key: 'RO',
+      ownerId: users.OWNER.id,
       members: {
         create: [
           { userId: users.OWNER.id, role: 'OWNER' },
@@ -266,9 +268,38 @@ describe('POST /boards', () => {
 
     expect(response.status).toBe(201);
     const { board } = boardResponseSchema.parse(response.body);
-    expect(board).toMatchObject({ name: 'Sprint 1', role: 'OWNER' });
+    expect(board).toMatchObject({ name: 'Sprint 1', key: 'SP', role: 'OWNER' });
     expect(await roleOf(board.id, fx.candidate.id)).toBe('OWNER');
     expect(await db.boardMember.count({ where: { boardId: board.id } })).toBe(1);
+    const stored = await db.board.findUniqueOrThrow({ where: { id: board.id } });
+    expect(stored).toMatchObject({ ownerId: fx.candidate.id, nextCardNumber: 1 });
+  });
+
+  it('generates distinct keys for boards of one owner, and reuses them across owners', async () => {
+    const create = async (user: TestUser, name: string): Promise<string> => {
+      const response = await as(user, request(app).post('/boards')).send({ name });
+      expect(response.status).toBe(201);
+      return boardResponseSchema.parse(response.body).board.key;
+    };
+
+    expect(await create(fx.candidate, 'Sprint Board')).toBe('SB');
+    expect(await create(fx.candidate, 'sprint board')).toBe('SBO');
+    // SB is taken: further letters of the last word come first.
+    expect(await create(fx.candidate, 'Sales Backlog')).toBe('SBA');
+    expect(await create(fx.users.OUTSIDER, 'Sprint Board')).toBe('SB');
+    expect(await create(fx.candidate, '2027')).toBe('BRD');
+    expect(await create(fx.candidate, '!!!')).toBe('BRDA');
+  });
+
+  it('gives concurrent boards with the same name distinct keys', async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        as(fx.candidate, request(app).post('/boards')).send({ name: 'Roadmap' }),
+      ),
+    );
+
+    const keys = responses.map((response) => boardResponseSchema.parse(response.body).board.key);
+    expect([...keys].sort()).toEqual(['RO', 'ROA', 'ROAD', 'ROADM']);
   });
 
   it.each([{}, { name: '' }, { name: '   ' }, { name: 'a'.repeat(101) }, { name: 42 }])(
@@ -323,13 +354,55 @@ describe('PATCH /boards/:boardId', () => {
     expect(new Date(board.updatedAt).getTime()).toBeGreaterThanOrEqual(before.updatedAt.getTime());
   });
 
-  it('rejects an invalid name with 400', async () => {
-    const response = await as(fx.users.OWNER, request(app).patch(`/boards/${fx.boardId}`)).send({
-      name: '',
+  it.each([{ name: '' }, {}, { key: 'X' }, { key: 'ABCDEF' }, { key: 'A1' }, { title: 'X' }])(
+    'rejects %j with 400',
+    async (body) => {
+      const response = await as(fx.users.OWNER, request(app).patch(`/boards/${fx.boardId}`)).send(
+        body,
+      );
+
+      expect(response.status).toBe(400);
+      expect(errorCode(response)).toBe('VALIDATION_ERROR');
+    },
+  );
+
+  it('changes the key (uppercased) and keeps the name', async () => {
+    const response = await as(fx.users.ADMIN, request(app).patch(`/boards/${fx.boardId}`)).send({
+      key: ' sl ',
     });
 
-    expect(response.status).toBe(400);
-    expect(errorCode(response)).toBe('VALIDATION_ERROR');
+    expect(response.status).toBe(200);
+    expect(boardResponseSchema.parse(response.body).board).toMatchObject({
+      name: 'Roadmap',
+      key: 'SL',
+    });
+  });
+
+  it('refuses a key used by another board of the same owner with 409 BOARD_KEY_TAKEN', async () => {
+    await db.board.create({ data: { name: 'Other', key: 'OT', ownerId: fx.users.OWNER.id } });
+
+    const response = await as(fx.users.ADMIN, request(app).patch(`/boards/${fx.boardId}`)).send({
+      name: 'Changed',
+      key: 'ot',
+    });
+
+    expect(response.status).toBe(409);
+    expect(errorCode(response)).toBe('BOARD_KEY_TAKEN');
+    expect(await db.board.findUniqueOrThrow({ where: { id: fx.boardId } })).toMatchObject({
+      name: 'Roadmap',
+      key: 'RO',
+    });
+  });
+
+  it("accepts a key used by another owner's board, and the board's own key", async () => {
+    await db.board.create({ data: { name: 'Other', key: 'OT', ownerId: fx.candidate.id } });
+
+    for (const key of ['OT', 'OT']) {
+      const response = await as(fx.users.OWNER, request(app).patch(`/boards/${fx.boardId}`)).send({
+        key,
+      });
+      expect(response.status).toBe(200);
+    }
   });
 });
 

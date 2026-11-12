@@ -14,9 +14,14 @@ beforeAll(() => {
 
 beforeEach(async () => {
   await resetDatabase(db);
+  const owner = await db.user.create({
+    data: { email: 'owner@example.com', passwordHash: 'x', name: 'Owner' },
+  });
   const board = await db.board.create({
     data: {
       name: 'Board',
+      key: 'BO',
+      ownerId: owner.id,
       columns: { create: [{ title: 'Done', rank: 'U', category: 'DONE' }] },
     },
   });

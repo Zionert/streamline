@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { BOARD_KEY_PATTERN } from '../board-key.js';
 import { emailSchema } from './auth.js';
 
 /** Roles of a board member, from the most to the least privileged. */
@@ -34,10 +35,35 @@ export const createBoardSchema = z.object({
 
 export type CreateBoardInput = z.infer<typeof createBoardSchema>;
 
-/** Body of `PATCH /boards/:boardId`. */
-export const updateBoardSchema = z.object({
+/**
+ * Board key, the prefix of card keys (`SL` in `SL-12`): 2–5 uppercase ASCII letters, unique among
+ * the boards of one owner. Input is trimmed and uppercased.
+ */
+export const boardKeySchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(BOARD_KEY_PATTERN, 'Board key must be 2-5 letters A-Z');
+
+/** Board name alone, e.g. for a rename form. */
+export const renameBoardSchema = z.object({
   name: boardNameSchema,
 });
+
+export type RenameBoardInput = z.infer<typeof renameBoardSchema>;
+
+/**
+ * Body of `PATCH /boards/:boardId`; at least one field is required. Changing the key changes
+ * the keys of all cards of the board (their numbers stay the same).
+ */
+export const updateBoardSchema = z
+  .strictObject({
+    name: boardNameSchema.optional(),
+    key: boardKeySchema.optional(),
+  })
+  .refine((value) => value.name !== undefined || value.key !== undefined, {
+    message: 'name or key is required',
+  });
 
 export type UpdateBoardInput = z.infer<typeof updateBoardSchema>;
 
@@ -60,6 +86,7 @@ export type UpdateBoardMemberInput = z.infer<typeof updateBoardMemberSchema>;
 export const boardSchema = z.object({
   id: z.string(),
   name: z.string(),
+  key: boardKeySchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   role: boardRoleSchema,
@@ -113,6 +140,8 @@ export const BOARD_ERROR_CODES = {
   ALREADY_MEMBER: 'ALREADY_MEMBER',
   /** The owner tried to leave the board; ownership has to be transferred first. */
   OWNER_CANNOT_LEAVE: 'OWNER_CANNOT_LEAVE',
+  /** Another board of the same owner already uses the requested key. */
+  BOARD_KEY_TAKEN: 'BOARD_KEY_TAKEN',
 } as const;
 
 export type BoardErrorCode = (typeof BOARD_ERROR_CODES)[keyof typeof BOARD_ERROR_CODES];
