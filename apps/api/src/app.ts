@@ -10,6 +10,7 @@ import { errorHandler } from './middleware/error-handler.js';
 import { notFoundHandler } from './middleware/not-found.js';
 import { createRequireAuth } from './middleware/require-auth.js';
 import { createRequireBoardPermission } from './middleware/require-board-permission.js';
+import { noopBoardEvents, type BoardEvents } from './realtime/board-events.js';
 import { createBoardMemberRepository } from './repositories/board-member.repository.js';
 import { createBoardRepository } from './repositories/board.repository.js';
 import { createCardRepository } from './repositories/card.repository.js';
@@ -32,8 +33,18 @@ export interface AppDependencies {
   db: DbClient;
 }
 
+export interface CreateAppOptions extends AppDependencies {
+  /** Broadcasts committed board changes (no-op without a socket server, e.g. in REST tests). */
+  events?: BoardEvents;
+}
+
 /** Builds the Express application (wiring repositories and services) without starting the server. */
-export function createApp({ config, logger, db }: AppDependencies): Express {
+export function createApp({
+  config,
+  logger,
+  db,
+  events = noopBoardEvents,
+}: CreateAppOptions): Express {
   const tokens = createTokenService(config);
   const users = createUserRepository(db);
   const boardMembers = createBoardMemberRepository(db);
@@ -50,10 +61,11 @@ export function createApp({ config, logger, db }: AppDependencies): Express {
     boards: createBoardRepository(db),
     members: boardMembers,
     users,
+    events,
   });
   const boardAccess = createBoardAccessService({ members: boardMembers });
-  const columnService = createColumnService({ columns: createColumnRepository(db) });
-  const cardService = createCardService({ cards: createCardRepository(db) });
+  const columnService = createColumnService({ columns: createColumnRepository(db), events });
+  const cardService = createCardService({ cards: createCardRepository(db), events });
 
   const app = express();
 

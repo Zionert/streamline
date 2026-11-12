@@ -94,6 +94,11 @@ export const boardSchema = z.object({
 
 export type Board = z.infer<typeof boardSchema>;
 
+/** A board without the viewer's role, e.g. in an event broadcast to all members. */
+export const boardSummarySchema = boardSchema.omit({ role: true });
+
+export type BoardSummary = z.infer<typeof boardSummarySchema>;
+
 /** Response body of `POST /boards`, `GET /boards/:boardId` and `PATCH /boards/:boardId`. */
 export const boardResponseSchema = z.object({
   board: boardSchema,

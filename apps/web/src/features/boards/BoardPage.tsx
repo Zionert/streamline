@@ -1,4 +1,10 @@
-import { hasBoardPermission, type Board, type BoardMember, type Card } from '@streamline/shared';
+import {
+  hasBoardPermission,
+  type Board,
+  type BoardMember,
+  type Card,
+  type PresenceUser,
+} from '@streamline/shared';
 import { ArrowUpDown, PanelLeft, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useNavigate, useParams } from 'react-router';
@@ -10,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { isFilterActive, type CardFilter } from '@/features/cards/cardFilter';
+import { BoardPresence } from '@/features/realtime/BoardPresence';
+import { useBoardRealtime } from '@/features/realtime/useBoardRealtime';
 import { MOBILE_SCREEN_QUERY, useMediaQuery } from '@/hooks/useMediaQuery';
 import { useBoardStore } from '@/stores/board';
 
@@ -23,9 +31,13 @@ import { useSidebarState } from './sidebarState';
 /** Toast id of the board notice: a newer notice replaces the previous one, like a banner. */
 const NOTICE_TOAST_ID = 'board-notice';
 
-/** A single board: its columns and cards (with reordering and settings) and its members. */
+/**
+ * A single board: its columns and cards (with reordering and settings) and its members, kept up
+ * to date with the changes of other users while the page is open.
+ */
 export function BoardPage() {
   const { boardId = '' } = useParams();
+  useBoardRealtime(boardId);
   const openedId = useBoardStore((state) => state.boardId);
   const board = useBoardStore((state) => state.board);
   const status = useBoardStore((state) => state.boardStatus);
@@ -100,6 +112,7 @@ function BoardView({ board }: { board: Board }) {
   const cardsStatus = useBoardStore((state) => state.cardsStatus);
   const isMovingCard = useBoardStore((state) => state.isMovingCard);
   const notice = useBoardStore((state) => state.notice);
+  const presence = useBoardStore((state) => state.presence);
   const moveColumn = useBoardStore((state) => state.moveColumn);
   const moveCard = useBoardStore((state) => state.moveCard);
   const reloadCards = useBoardStore((state) => state.reloadCards);
@@ -182,6 +195,7 @@ function BoardView({ board }: { board: Board }) {
           activeMemberIds={activeMemberIds}
           onToggleMember={toggleMember}
           showDragHint={filtering && canWriteCards}
+          presence={presence}
         />
         {cardsStatus === 'error' && (
           <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
@@ -234,6 +248,8 @@ interface BoardToolbarProps {
   onToggleMember: (userId: string) => void;
   /** Explains that dragging cards is paused while a filter is active. */
   showDragHint: boolean;
+  /** Users currently viewing the board. */
+  presence: readonly PresenceUser[];
 }
 
 /** View-only card filters: text (title or key) and assignees. */
@@ -244,6 +260,7 @@ function BoardToolbar({
   activeMemberIds,
   onToggleMember,
   showDragHint,
+  presence,
 }: BoardToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -276,6 +293,9 @@ function BoardToolbar({
         Sort
       </Button>
       {showDragHint && <p className="text-xs text-subtle">Clear the filter to drag cards.</p>}
+      <div className="ml-auto">
+        <BoardPresence users={presence} />
+      </div>
     </div>
   );
 }

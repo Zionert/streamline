@@ -16,6 +16,7 @@ import {
   type ColumnRepository,
   type ColumnStore,
 } from '../repositories/column.repository.js';
+import { createRecordingBoardEvents } from '../test/board-events.js';
 import type { BoardMembership } from './board-access.service.js';
 import {
   createColumnService,
@@ -429,5 +430,87 @@ describe('ColumnService', () => {
       busy,
     );
     await expect(service.delete(as('OWNER'), 'b')).rejects.toMatchObject(busy);
+  });
+});
+
+describe('ColumnService events', () => {
+  const tight = () => [
+    record('a', '1'),
+    record('b', '2'),
+    record('c', `2${'0'.repeat(RANK_MAX_LENGTH - 2)}1`),
+    record('d', '3', 'DONE'),
+  ];
+
+  it('broadcasts each change with the actor and the origin', async () => {
+    const events = createRecordingBoardEvents();
+    const service = createColumnService({ columns: fakeColumns(defaults()).repository, events });
+    const origin = { socketId: 's1' };
+
+    const created = await service.create(as('MEMBER'), { title: 'New' }, origin);
+    const renamed = await service.rename(as('MEMBER'), 'b', { title: 'Renamed' }, origin);
+    const moved = await service.move(as('MEMBER'), 'b', { afterId: 'c', beforeId: 'd' }, origin);
+    const updated = await service.updateSettings(as('ADMIN'), 'c', { wipLimit: 2 }, origin);
+    await service.delete(as('MEMBER'), 'a', origin);
+
+    const meta = { boardId: 'board-1', actorId: 'u1' };
+    expect(events.events).toEqual([
+      { name: 'column:created', payload: { ...meta, column: created }, origin },
+      { name: 'column:updated', payload: { ...meta, column: renamed }, origin },
+      { name: 'column:moved', payload: { ...meta, column: moved }, origin },
+      { name: 'column:updated', payload: { ...meta, column: updated }, origin },
+      { name: 'column:deleted', payload: { ...meta, columnId: 'a' }, origin },
+    ]);
+  });
+
+  it('announces a rebalance with the new ranks before the created column', async () => {
+    const events = createRecordingBoardEvents();
+    const fake = fakeColumns(tight());
+    const service = createColumnService({ columns: fake.repository, events });
+
+    const created = await service.create(as('OWNER'), {
+      title: 'New',
+      afterId: 'b',
+      beforeId: 'c',
+    });
+
+    expect(events.events.map((event) => event.name)).toEqual([
+      'columns:rebalanced',
+      'column:created',
+    ]);
+    const [rebalance] = events.events;
+    if (rebalance?.name !== 'columns:rebalanced') throw new Error('expected a rebalance first');
+    const rows = await fake.repository.listForBoard('board-1');
+    expect(rebalance.payload.ranks).toEqual(
+      rows.filter((row) => row.id !== created.id).map(({ id, rank }) => ({ id, rank })),
+    );
+  });
+
+  it('announces a rebalance of a move including the moved column', async () => {
+    const events = createRecordingBoardEvents();
+    const fake = fakeColumns(tight());
+
+    await createColumnService({ columns: fake.repository, events }).move(as('OWNER'), 'd', {
+      afterId: 'b',
+    });
+
+    const [rebalance, move] = events.events;
+    expect(move?.name).toBe('column:moved');
+    if (rebalance?.name !== 'columns:rebalanced') throw new Error('expected a rebalance first');
+    const rows = await fake.repository.listForBoard('board-1');
+    expect(rebalance.payload.ranks).toEqual(rows.map(({ id, rank }) => ({ id, rank })));
+  });
+
+  it('broadcasts nothing when the change fails', async () => {
+    const events = createRecordingBoardEvents();
+    const service = createColumnService({ columns: fakeColumns(defaults()).repository, events });
+
+    await expect(service.rename(as('MEMBER'), 'zzz', { title: 'X' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+    await expect(service.delete(as('MEMBER'), 'd')).rejects.toBeInstanceOf(ConflictError);
+    await expect(service.create(as('VIEWER'), { title: 'X' })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(events.events).toEqual([]);
   });
 });

@@ -57,3 +57,9 @@ export function isStaleColumnsError(error: unknown): boolean {
 export function isNotFoundError(error: unknown): boolean {
   return getApiErrorInfo(error).status === 404;
 }
+
+/** The board is gone or the user is no longer a member (404), or lost the right to see it (403). */
+export function isAccessLostError(error: unknown): boolean {
+  const { status } = getApiErrorInfo(error);
+  return status === 404 || status === 403;
+}

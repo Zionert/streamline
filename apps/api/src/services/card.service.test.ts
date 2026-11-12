@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ForbiddenError } from '../errors/app-error.js';
 import { BoardBusyError } from '../repositories/board-transaction.js';
-import type { CardRecord, CardRepository } from '../repositories/card.repository.js';
+import type { CardRecord, CardRepository, CardStore } from '../repositories/card.repository.js';
+import { createRecordingBoardEvents } from '../test/board-events.js';
 import type { BoardMembership } from './board-access.service.js';
 import { createCardService, formatDueDate, parseDueDate, toCard } from './card.service.js';
 
@@ -98,5 +99,64 @@ describe('CardService', () => {
       code: 'BOARD_BUSY',
     });
     expect(transaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('CardService events', () => {
+  /** A transaction whose store's `update` returns `updated` (the only call of an edit). */
+  function updateTransaction(updated: CardRecord | null): CardRepository['transaction'] {
+    const store: Partial<CardStore> = { update: () => Promise.resolve(updated) };
+    return (fn) => fn(store as CardStore);
+  }
+
+  it('broadcasts card:updated with the card and the origin after a successful update', async () => {
+    const events = createRecordingBoardEvents();
+    const cards = fakeCards({ transaction: updateTransaction(record) });
+    const service = createCardService({ cards, events });
+
+    const card = await service.update(as('MEMBER'), 'card-1', { title: 'X' }, { socketId: 's1' });
+
+    expect(events.events).toEqual([
+      {
+        name: 'card:updated',
+        payload: { boardId: 'board-1', actorId: 'u1', card },
+        origin: { socketId: 's1' },
+      },
+    ]);
+  });
+
+  it('broadcasts card:deleted with the card id', async () => {
+    const events = createRecordingBoardEvents();
+    const service = createCardService({ cards: fakeCards(), events });
+
+    await service.delete(as('MEMBER'), 'card-1');
+
+    expect(events.events).toEqual([
+      {
+        name: 'card:deleted',
+        payload: { boardId: 'board-1', actorId: 'u1', cardId: 'card-1' },
+        origin: undefined,
+      },
+    ]);
+  });
+
+  it('broadcasts nothing when the change fails', async () => {
+    const events = createRecordingBoardEvents();
+    const service = createCardService({
+      cards: fakeCards({
+        delete: vi.fn(() => Promise.resolve(false)),
+        transaction: updateTransaction(null),
+      }),
+      events,
+    });
+
+    await expect(service.delete(as('MEMBER'), 'card-1')).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    await expect(service.update(as('MEMBER'), 'card-1', { title: 'X' })).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    await expect(service.delete(as('VIEWER'), 'card-1')).rejects.toBeInstanceOf(ForbiddenError);
+    expect(events.events).toEqual([]);
   });
 });

@@ -11,6 +11,7 @@ import type { Request, Response } from 'express';
 import { NotFoundError } from '../errors/app-error.js';
 import { getBoardMembership } from '../middleware/require-board-permission.js';
 import { COLUMN_NOT_FOUND_MESSAGE, type ColumnService } from '../services/column.service.js';
+import { changeOrigin } from './change-origin.js';
 
 function columnId(req: Request): string {
   const { columnId: id } = req.params;
@@ -28,19 +29,29 @@ export function createColumnController(columnService: ColumnService) {
 
     create: async (req: Request, res: Response<ColumnResponse>): Promise<void> => {
       const input = createColumnSchema.parse(req.body);
-      const column = await columnService.create(getBoardMembership(res), input);
+      const column = await columnService.create(getBoardMembership(res), input, changeOrigin(req));
       res.status(201).json({ column });
     },
 
     rename: async (req: Request, res: Response<ColumnResponse>): Promise<void> => {
       const input = renameColumnSchema.parse(req.body);
-      const column = await columnService.rename(getBoardMembership(res), columnId(req), input);
+      const column = await columnService.rename(
+        getBoardMembership(res),
+        columnId(req),
+        input,
+        changeOrigin(req),
+      );
       res.json({ column });
     },
 
     move: async (req: Request, res: Response<ColumnResponse>): Promise<void> => {
       const input = moveColumnSchema.parse(req.body);
-      const column = await columnService.move(getBoardMembership(res), columnId(req), input);
+      const column = await columnService.move(
+        getBoardMembership(res),
+        columnId(req),
+        input,
+        changeOrigin(req),
+      );
       res.json({ column });
     },
 
@@ -50,12 +61,13 @@ export function createColumnController(columnService: ColumnService) {
         getBoardMembership(res),
         columnId(req),
         input,
+        changeOrigin(req),
       );
       res.json({ column });
     },
 
     remove: async (req: Request, res: Response): Promise<void> => {
-      await columnService.delete(getBoardMembership(res), columnId(req));
+      await columnService.delete(getBoardMembership(res), columnId(req), changeOrigin(req));
       res.status(204).end();
     },
   };

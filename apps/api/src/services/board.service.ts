@@ -8,12 +8,14 @@ import {
   type Board,
   type BoardMember,
   type BoardRole,
+  type BoardSummary,
   type CreateBoardInput,
   type UpdateBoardInput,
   type UpdateBoardMemberInput,
 } from '@streamline/shared';
 
 import { ConflictError, ForbiddenError, NotFoundError } from '../errors/app-error.js';
+import { noopBoardEvents, type BoardEvents, type ChangeOrigin } from '../realtime/board-events.js';
 import type {
   BoardMemberRepository,
   BoardMemberWithUser,
@@ -34,6 +36,8 @@ import { busyToServiceUnavailable } from './ranked-write.js';
 /**
  * Board and membership use cases. Methods taking a `BoardMembership` expect the caller's
  * membership verified by `BoardAccessService`; they re-check the role themselves as well.
+ * Successful changes are broadcast through `BoardEvents` (the optional `origin` identifies the
+ * client that made the change, so it is not sent its own change back).
  */
 export interface BoardService {
   listForUser(userId: string): Promise<Board[]>;
@@ -44,25 +48,42 @@ export interface BoardService {
   create(userId: string, input: CreateBoardInput): Promise<Board>;
   get(membership: BoardMembership): Promise<Board>;
   /** Changes the name and/or the key (409 `BOARD_KEY_TAKEN` if the owner uses it elsewhere). */
-  update(membership: BoardMembership, input: UpdateBoardInput): Promise<Board>;
-  delete(membership: BoardMembership): Promise<void>;
+  update(
+    membership: BoardMembership,
+    input: UpdateBoardInput,
+    origin?: ChangeOrigin,
+  ): Promise<Board>;
+  delete(membership: BoardMembership, origin?: ChangeOrigin): Promise<void>;
   listMembers(membership: BoardMembership): Promise<BoardMember[]>;
   /** Adds a registered user, found by email, to the board. */
-  addMember(membership: BoardMembership, input: AddBoardMemberInput): Promise<BoardMember>;
+  addMember(
+    membership: BoardMembership,
+    input: AddBoardMemberInput,
+    origin?: ChangeOrigin,
+  ): Promise<BoardMember>;
   /** Changes the role of a member other than the OWNER. */
   updateMemberRole(
     membership: BoardMembership,
     targetUserId: string,
     input: UpdateBoardMemberInput,
+    origin?: ChangeOrigin,
   ): Promise<BoardMember>;
-  /** Removes another member (managers only, never the OWNER), or lets the caller leave the board. */
-  removeMember(membership: BoardMembership, targetUserId: string): Promise<void>;
+  /**
+   * Removes another member (managers only, never the OWNER), or lets the caller leave the board.
+   * The removed user's sockets are forced out of the board room.
+   */
+  removeMember(
+    membership: BoardMembership,
+    targetUserId: string,
+    origin?: ChangeOrigin,
+  ): Promise<void>;
 }
 
 export interface BoardServiceDependencies {
   boards: BoardRepository;
   members: BoardMemberRepository;
   users: Pick<UserRepository, 'findByEmail'>;
+  events?: BoardEvents;
 }
 
 const MEMBER_NOT_FOUND_MESSAGE = 'Member not found';
@@ -93,6 +114,17 @@ export function toBoard(board: BoardRecord, role: BoardRole): Board {
   };
 }
 
+/** A board without the viewer's role (for events sent to all members). */
+export function toBoardSummary(board: BoardRecord): BoardSummary {
+  return {
+    id: board.id,
+    name: board.name,
+    key: board.key,
+    createdAt: board.createdAt.toISOString(),
+    updatedAt: board.updatedAt.toISOString(),
+  };
+}
+
 export function toBoardMember(member: BoardMemberWithUser): BoardMember {
   return {
     userId: member.userId,
@@ -107,6 +139,7 @@ export function createBoardService({
   boards,
   members,
   users,
+  events = noopBoardEvents,
 }: BoardServiceDependencies): BoardService {
   /**
    * Explains why a conditional update/delete of a member matched no row:
@@ -164,11 +197,17 @@ export function createBoardService({
       return toBoard(board, membership.role);
     },
 
-    async update(membership, { name, key }) {
+    async update(membership, { name, key }, origin) {
       assertBoardPermission(membership, 'board:rename');
-      const result = await boards.update(membership.boardId, { name, key });
+      const { boardId, userId } = membership;
+      const result = await boards.update(boardId, { name, key });
       switch (result.status) {
         case 'updated':
+          events.publish(
+            'board:updated',
+            { boardId, actorId: userId, board: toBoardSummary(result.board) },
+            origin,
+          );
           return toBoard(result.board, membership.role);
         case 'not-found':
           throw new NotFoundError(BOARD_NOT_FOUND_MESSAGE);
@@ -180,11 +219,13 @@ export function createBoardService({
       }
     },
 
-    async delete(membership) {
+    async delete(membership, origin) {
       assertBoardPermission(membership, 'board:delete');
-      if (!(await boards.delete(membership.boardId))) {
+      const { boardId, userId } = membership;
+      if (!(await boards.delete(boardId))) {
         throw new NotFoundError(BOARD_NOT_FOUND_MESSAGE);
       }
+      events.closeBoard({ boardId, actorId: userId }, origin);
     },
 
     async listMembers(membership) {
@@ -193,7 +234,7 @@ export function createBoardService({
       return list.map(toBoardMember);
     },
 
-    async addMember(membership, { email, role }) {
+    async addMember(membership, { email, role }, origin) {
       assertBoardPermission(membership, 'members:manage');
       const user = await users.findByEmail(email);
       if (!user) {
@@ -205,8 +246,15 @@ export function createBoardService({
 
       const result = await members.add({ boardId: membership.boardId, userId: user.id, role });
       switch (result.status) {
-        case 'created':
-          return toBoardMember(result.member);
+        case 'created': {
+          const member = toBoardMember(result.member);
+          events.publish(
+            'member:added',
+            { boardId: membership.boardId, actorId: membership.userId, member },
+            origin,
+          );
+          return member;
+        }
         case 'already-member':
           throw new ConflictError(
             'This user is already a member of the board',
@@ -217,7 +265,7 @@ export function createBoardService({
       }
     },
 
-    async updateMemberRole(membership, targetUserId, { role }) {
+    async updateMemberRole(membership, targetUserId, { role }, origin) {
       assertBoardPermission(membership, 'members:manage');
       const { boardId } = membership;
       // Conditional update: the OWNER row can never be modified, even by a concurrent request.
@@ -228,11 +276,22 @@ export function createBoardService({
       if (!updated) {
         throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
       }
-      return toBoardMember(updated);
+      const member = toBoardMember(updated);
+      events.publish('member:updated', { boardId, actorId: membership.userId, member }, origin);
+      return member;
     },
 
-    async removeMember(membership, targetUserId) {
+    async removeMember(membership, targetUserId, origin) {
       const { boardId, userId } = membership;
+      // The removed user first loses the room, so they never see events after their removal.
+      const announceRemoval = () => {
+        events.revokeAccess(boardId, targetUserId, origin);
+        events.publish(
+          'member:removed',
+          { boardId, actorId: userId, userId: targetUserId },
+          origin,
+        );
+      };
 
       if (targetUserId === userId) {
         if (!canLeaveBoard(membership.role)) {
@@ -244,6 +303,7 @@ export function createBoardService({
         if (!(await removeUnlessOwner(boardId, userId))) {
           throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
         }
+        announceRemoval();
         return;
       }
 
@@ -251,6 +311,7 @@ export function createBoardService({
       if (!(await removeUnlessOwner(boardId, targetUserId))) {
         await failForTarget(boardId, targetUserId, 'The board owner cannot be removed');
       }
+      announceRemoval();
     },
   };
 }

@@ -3,9 +3,11 @@ import {
   type AddBoardMemberInput,
   type AssignableBoardRole,
   type Board,
+  type BoardEvent,
   type BoardMember,
   type Card,
   type Column,
+  type PresenceUser,
   type UpdateCardInput,
   type UpdateColumnSettingsInput,
 } from '@streamline/shared';
@@ -13,6 +15,7 @@ import { create } from 'zustand';
 
 import {
   getBoardErrorMessage,
+  isAccessLostError,
   isNotFoundError,
   isStaleColumnsError,
 } from '@/features/boards/boardErrorMessage';
@@ -43,6 +46,17 @@ import {
   type CardsByColumn,
 } from '@/features/cards/cardOrder';
 import * as cardsApi from '@/features/cards/cardsApi';
+import {
+  applyCardRanks,
+  applyRanks,
+  placeCard,
+  removeColumn,
+  updateCardFields,
+  updateColumnFields,
+  upsertColumnByRank,
+  upsertMember,
+  withBoardKey,
+} from '@/features/realtime/boardEventReducers';
 import { useAuthStore } from '@/stores/auth';
 
 export type BoardsStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -50,6 +64,9 @@ export type BoardsStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type CurrentBoardStatus = 'idle' | 'loading' | 'ready' | 'not-found' | 'error';
 
 export type CardsStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+/** Outcome of `resyncBoard`: `access-lost` when the board is gone or the user is no member. */
+export type ResyncResult = 'ok' | 'access-lost' | 'error';
 
 export interface BoardState {
   /** Boards of the current user (newest first), each with the user's role. */
@@ -75,6 +92,10 @@ export interface BoardState {
   isMovingCard: boolean;
   /** Message about a failed operation that has no form of its own (e.g. drag & drop). */
   notice: string | null;
+  /** Users currently viewing the opened board (each once), as reported by the server. */
+  presence: PresenceUser[];
+  /** Ids of cards of the opened board deleted by someone else (e.g. to explain a closed modal). */
+  deletedCardIds: ReadonlySet<string>;
 
   loadBoards: () => Promise<void>;
   createBoard: (name: string) => Promise<Board>;
@@ -116,6 +137,22 @@ export interface BoardState {
   /** Removes the current user from the opened board and forgets the board locally. */
   leaveBoard: () => Promise<void>;
   dismissNotice: () => void;
+
+  /**
+   * Applies a change made by someone else, broadcast by the server. Idempotent; events of
+   * another board are ignored. During a local move, events that reorder the moved list are
+   * skipped and the list is reloaded once the move has settled.
+   */
+  applyBoardEvent: (event: BoardEvent) => void;
+  /**
+   * Reloads the board, columns, members and cards of the opened board `boardId` (e.g. after
+   * joining its socket room); never rejects. A snapshot never overwrites a newer one, and a list
+   * with a move in flight is reloaded once the move has settled instead.
+   */
+  resyncBoard: (boardId: string) => Promise<ResyncResult>;
+  /** Forgets a board the user lost access to (removed, or the board was deleted). */
+  forgetBoard: (boardId: string) => void;
+  setPresence: (boardId: string, users: PresenceUser[]) => void;
 }
 
 type BoardData = Pick<
@@ -134,6 +171,8 @@ type BoardData = Pick<
   | 'cardsStatus'
   | 'isMovingCard'
   | 'notice'
+  | 'presence'
+  | 'deletedCardIds'
 >;
 
 const openedBoardInitialState: Omit<BoardData, 'boards' | 'boardsStatus' | 'boardsError'> = {
@@ -148,6 +187,8 @@ const openedBoardInitialState: Omit<BoardData, 'boards' | 'boardsStatus' | 'boar
   cardsStatus: 'idle',
   isMovingCard: false,
   notice: null,
+  presence: [],
+  deletedCardIds: new Set<string>(),
 };
 
 const initialState: BoardData = {
@@ -171,6 +212,14 @@ let boardsGeneration = 0;
 let cardsGeneration = 0;
 /** Generation of the latest card list request that has not settled yet, or `null`. */
 let pendingCardsLoad: number | null = null;
+/** The same guards for the column list: only the latest read may apply its result. */
+let columnsGeneration = 0;
+let pendingColumnsLoad: number | null = null;
+/**
+ * Incremented by every read of the board and its members (opening, resync): a snapshot started
+ * earlier never overwrites the result of a later one.
+ */
+let snapshotGeneration = 0;
 
 const CARD_EDIT_FIELDS = ['title', 'description', 'priority', 'assigneeId', 'dueDate'] as const;
 type CardEditField = (typeof CARD_EDIT_FIELDS)[number];
@@ -185,6 +234,37 @@ const latestCardEdits = new Map<string, number>();
 const cardEditsInFlight = new Set<number>();
 
 const cardEditKey = (cardId: string, field: CardEditField) => `${cardId}:${field}`;
+
+/** Fields of the card with a local edit still in flight (their local value is the newest). */
+function fieldsEditedInFlight(cardId: string): CardEditField[] {
+  return CARD_EDIT_FIELDS.filter((field) => {
+    const latest = latestCardEdits.get(cardEditKey(cardId, field));
+    return latest !== undefined && cardEditsInFlight.has(latest);
+  });
+}
+
+/**
+ * The move request of a column / card is in flight (a token of the move, or `null`). Remote
+ * events that reorder that list are not applied meanwhile (the moved item's rank is still the old
+ * one, so sorting would undo the move on screen); the `...ChangedDuringMove` flag records them and
+ * the list is reloaded as soon as the request has settled. Events arriving during that reload are
+ * applied normally (and make the reload read the list again).
+ */
+let columnMoveInFlight: number | null = null;
+let cardMoveInFlight: number | null = null;
+let moveToken = 0;
+let columnsChangedDuringMove = false;
+let cardsChangedDuringMove = false;
+
+function takeFlag(flag: 'columns' | 'cards'): boolean {
+  const value = flag === 'columns' ? columnsChangedDuringMove : cardsChangedDuringMove;
+  if (flag === 'columns') {
+    columnsChangedDuringMove = false;
+  } else {
+    cardsChangedDuringMove = false;
+  }
+  return value;
+}
 
 function editedFields(input: UpdateCardInput): CardEditField[] {
   return CARD_EDIT_FIELDS.filter((field) => input[field] !== undefined);
@@ -273,6 +353,27 @@ export const useBoardStore = create<BoardState>()((set, get) => {
     set((state) => ({ cardsByColumn: update(state.cardsByColumn) }));
   }
 
+  /** Starts a read of the column list; only the latest read may apply its result. */
+  function beginColumnsRead() {
+    const generation = ++columnsGeneration;
+    pendingColumnsLoad = generation;
+    return {
+      isLatest: () => generation === columnsGeneration,
+      settle: () => {
+        if (pendingColumnsLoad === generation) {
+          pendingColumnsLoad = null;
+        }
+      },
+    };
+  }
+
+  /** A remote column change may be missing from a column list being read: read it again. */
+  function rereadColumnsIfLoading() {
+    if (pendingColumnsLoad !== null) {
+      void get().reloadColumns();
+    }
+  }
+
   /** Loads the cards of the opened board unless another board is opened meanwhile. */
   async function loadCards(boardId: string, isCurrent: () => boolean) {
     const generation = ++cardsGeneration;
@@ -324,7 +425,16 @@ export const useBoardStore = create<BoardState>()((set, get) => {
 
   function forgetOpenedBoard() {
     boardGeneration += 1;
+    columnsChangedDuringMove = false;
+    cardsChangedDuringMove = false;
     set(openedBoardInitialState);
+  }
+
+  /** A remote card change may be missing from a card list that is being read: read it again. */
+  function rereadCardsIfLoading() {
+    if (pendingCardsLoad !== null) {
+      void get().reloadCards();
+    }
   }
 
   return {
@@ -383,20 +493,37 @@ export const useBoardStore = create<BoardState>()((set, get) => {
     openBoard: async (boardId) => {
       const generation = ++boardGeneration;
       const isCurrent = () => generation === boardGeneration;
-      set({ ...openedBoardInitialState, boardId, boardStatus: 'loading' });
+      columnsChangedDuringMove = false;
+      cardsChangedDuringMove = false;
+      // Presence comes from the socket, which may have joined before the board started loading.
+      set((state) => ({
+        ...openedBoardInitialState,
+        boardId,
+        boardStatus: 'loading',
+        presence: state.boardId === boardId ? state.presence : [],
+      }));
       // Cards load alongside; the columns are shown first, with card skeletons until they arrive.
       const cardsLoading = loadCards(boardId, isCurrent);
+      const snapshot = ++snapshotGeneration;
+      // A resync started meanwhile (e.g. after joining the socket room) has newer data.
+      const isLatestSnapshot = () => isCurrent() && snapshot === snapshotGeneration;
+      const columnsRead = beginColumnsRead();
       try {
         const [board, columns, members] = await Promise.all([
           boardsApi.getBoard(boardId),
           columnsApi.listColumns(boardId),
           boardsApi.listMembers(boardId),
         ]);
-        if (generation === boardGeneration) {
-          set({ board, columns: sortByRank(columns), members, boardStatus: 'ready' });
+        if (isLatestSnapshot()) {
+          set({
+            board,
+            members,
+            boardStatus: 'ready',
+            ...(columnsRead.isLatest() ? { columns: sortByRank(columns) } : {}),
+          });
         }
       } catch (error) {
-        if (generation !== boardGeneration) {
+        if (!isLatestSnapshot()) {
           return;
         }
         if (isNotFoundError(error)) {
@@ -404,6 +531,8 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         } else {
           set({ boardStatus: 'error', boardError: getBoardErrorMessage(error) });
         }
+      } finally {
+        columnsRead.settle();
       }
       await cardsLoading;
     },
@@ -413,13 +542,14 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         return;
       }
       const { boardId, isCurrent } = captureBoard();
+      const read = beginColumnsRead();
       try {
         const columns = await columnsApi.listColumns(boardId);
-        if (isCurrent()) {
+        if (isCurrent() && read.isLatest()) {
           set({ columns: sortByRank(columns) });
         }
       } catch (error) {
-        if (!isCurrent()) {
+        if (!isCurrent() || !read.isLatest()) {
           return;
         }
         if (isNotFoundError(error)) {
@@ -427,6 +557,8 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         } else {
           set({ notice: getBoardErrorMessage(error) });
         }
+      } finally {
+        read.settle();
       }
     },
 
@@ -482,6 +614,9 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       const originalOrder = columns;
       const reordered = reorderList(columns, fromIndex, toIndex);
       const neighbors = getMoveNeighbors(reordered, toIndex);
+      columnsChangedDuringMove = false;
+      const token = ++moveToken;
+      columnMoveInFlight = token;
       set({ columns: reordered, isMovingColumn: true, notice: null });
 
       let needsReload: boolean;
@@ -511,9 +646,14 @@ export const useBoardStore = create<BoardState>()((set, get) => {
           notice: getBoardErrorMessage(error),
         }));
         needsReload = isStaleColumnsError(error) || isNotFoundError(error);
+      } finally {
+        if (columnMoveInFlight === token) {
+          columnMoveInFlight = null;
+        }
       }
       try {
-        if (needsReload) {
+        // `takeFlag` runs even when a reload is needed anyway, to reset the flag.
+        if (takeFlag('columns') || needsReload) {
           await get().reloadColumns();
         }
       } finally {
@@ -606,6 +746,9 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       // read the list again once the move is done).
       const listWasInFlight = pendingCardsLoad !== null;
       cardsGeneration += 1;
+      cardsChangedDuringMove = false;
+      const token = ++moveToken;
+      cardMoveInFlight = token;
       set({ cardsByColumn: moved, isMovingCard: true, notice: null });
 
       let needsReload: boolean;
@@ -640,9 +783,13 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         }));
         needsReload = needsCardsReload(error);
         columnGone = isColumnGoneError(error);
+      } finally {
+        if (cardMoveInFlight === token) {
+          cardMoveInFlight = null;
+        }
       }
       try {
-        if (needsReload || listWasInFlight) {
+        if (takeFlag('cards') || needsReload || listWasInFlight) {
           // A column deleted elsewhere must disappear from the board as well.
           await Promise.all([get().reloadCards(), columnGone ? get().reloadColumns() : undefined]);
         }
@@ -763,6 +910,206 @@ export const useBoardStore = create<BoardState>()((set, get) => {
     },
 
     dismissNotice: () => set({ notice: null }),
+
+    applyBoardEvent: (event) => {
+      const state = get();
+      if (state.boardId === null || state.boardId !== event.payload.boardId) {
+        return;
+      }
+      switch (event.name) {
+        case 'board:updated': {
+          const summary = event.payload.board;
+          set((current) => ({
+            // The role is per user and is not part of the event.
+            board: current.board ? { ...current.board, ...summary } : current.board,
+            boards: current.boards.map((board) =>
+              board.id === summary.id ? { ...board, ...summary } : board,
+            ),
+            cardsByColumn:
+              current.board && current.board.key !== summary.key
+                ? withBoardKey(current.cardsByColumn, summary.key)
+                : current.cardsByColumn,
+          }));
+          return;
+        }
+        case 'board:deleted':
+          // Handled by the realtime hook, which leaves the page.
+          return;
+        case 'column:created':
+        case 'column:moved':
+          if (columnMoveInFlight !== null) {
+            columnsChangedDuringMove = true;
+            return;
+          }
+          set((current) => ({
+            columns: upsertColumnByRank(current.columns, event.payload.column),
+          }));
+          rereadColumnsIfLoading();
+          return;
+        case 'column:updated':
+          set((current) => ({
+            columns: updateColumnFields(current.columns, event.payload.column),
+          }));
+          rereadColumnsIfLoading();
+          return;
+        case 'column:deleted':
+          // Removing an item is safe during a move (its rollback copes with missing neighbours).
+          if (columnMoveInFlight !== null) {
+            columnsChangedDuringMove = true;
+          }
+          set((current) =>
+            removeColumn(current.columns, current.cardsByColumn, event.payload.columnId),
+          );
+          rereadColumnsIfLoading();
+          return;
+        case 'columns:rebalanced':
+          if (columnMoveInFlight !== null) {
+            columnsChangedDuringMove = true;
+            return;
+          }
+          set((current) => ({ columns: applyRanks(current.columns, event.payload.ranks) }));
+          rereadColumnsIfLoading();
+          return;
+        case 'card:created':
+        case 'card:moved': {
+          if (cardMoveInFlight !== null) {
+            cardsChangedDuringMove = true;
+            return;
+          }
+          const { card } = event.payload;
+          const shown = findCard(state.cardsByColumn, card.id)?.card;
+          // Fields with a local edit in flight keep their local (newer) value.
+          const merged = shown
+            ? fieldsEditedInFlight(card.id).reduce<Card>(
+                (result, field) => ({ ...result, [field]: shown[field] }),
+                card,
+              )
+            : card;
+          setCards((cards) => placeCard(cards, merged));
+          rereadCardsIfLoading();
+          return;
+        }
+        case 'card:updated': {
+          const { card } = event.payload;
+          setCards((cards) => updateCardFields(cards, card, fieldsEditedInFlight(card.id)));
+          rereadCardsIfLoading();
+          return;
+        }
+        case 'card:deleted': {
+          const { cardId } = event.payload;
+          if (cardMoveInFlight !== null) {
+            cardsChangedDuringMove = true;
+          }
+          set((current) => ({
+            deletedCardIds: new Set(current.deletedCardIds).add(cardId),
+            cardsByColumn: removeCard(current.cardsByColumn, cardId),
+          }));
+          rereadCardsIfLoading();
+          return;
+        }
+        case 'cards:rebalanced':
+          if (cardMoveInFlight !== null) {
+            cardsChangedDuringMove = true;
+            return;
+          }
+          setCards((cards) => applyCardRanks(cards, event.payload.columnId, event.payload.ranks));
+          rereadCardsIfLoading();
+          return;
+        case 'member:added':
+          set((current) => ({
+            members: sortMembers(upsertMember(current.members, event.payload.member)),
+          }));
+          return;
+        case 'member:updated': {
+          const { member } = event.payload;
+          const isSelf = useAuthStore.getState().user?.id === member.userId;
+          set((current) => ({
+            members: current.members.some((entry) => entry.userId === member.userId)
+              ? sortMembers(upsertMember(current.members, member))
+              : current.members,
+            board:
+              isSelf && current.board ? { ...current.board, role: member.role } : current.board,
+            boards: isSelf
+              ? current.boards.map((board) =>
+                  board.id === event.payload.boardId ? { ...board, role: member.role } : board,
+                )
+              : current.boards,
+          }));
+          return;
+        }
+        case 'member:removed':
+          // The server unassigns the removed member from the cards of the board as well.
+          set((current) => ({
+            members: current.members.filter((member) => member.userId !== event.payload.userId),
+            cardsByColumn: unassignCards(current.cardsByColumn, event.payload.userId),
+          }));
+          return;
+      }
+    },
+
+    resyncBoard: async (openedId) => {
+      if (get().boardId !== openedId) {
+        return 'ok';
+      }
+      const { boardId, isCurrent } = captureBoard();
+      const snapshot = ++snapshotGeneration;
+      const isLatestSnapshot = () => isCurrent() && snapshot === snapshotGeneration;
+      // A list with a move request in flight is reloaded right after the request instead.
+      const deferColumns = columnMoveInFlight !== null;
+      const deferCards = cardMoveInFlight !== null;
+      columnsChangedDuringMove ||= deferColumns;
+      cardsChangedDuringMove ||= deferCards;
+      const columnsRead = deferColumns ? null : beginColumnsRead();
+      const cardsLoading = deferCards ? Promise.resolve() : loadCards(boardId, isCurrent);
+      try {
+        const [board, columns, members] = await Promise.all([
+          boardsApi.getBoard(boardId),
+          columnsRead ? columnsApi.listColumns(boardId) : Promise.resolve(null),
+          boardsApi.listMembers(boardId),
+        ]);
+        await cardsLoading;
+        if (isLatestSnapshot()) {
+          set({
+            board,
+            members,
+            boardStatus: 'ready',
+            boardError: null,
+            ...(columns && columnsRead?.isLatest() ? { columns: sortByRank(columns) } : {}),
+          });
+        }
+        return 'ok';
+      } catch (error) {
+        await cardsLoading;
+        if (!isLatestSnapshot()) {
+          return 'ok';
+        }
+        if (isAccessLostError(error)) {
+          return 'access-lost';
+        }
+        // A resync started while the board was still opening has superseded that load.
+        set((current) =>
+          current.boardStatus === 'loading'
+            ? { boardStatus: 'error', boardError: getBoardErrorMessage(error) }
+            : { notice: getBoardErrorMessage(error) },
+        );
+        return 'error';
+      } finally {
+        columnsRead?.settle();
+      }
+    },
+
+    forgetBoard: (boardId) => {
+      removeBoardFromList(boardId);
+      if (get().boardId === boardId) {
+        forgetOpenedBoard();
+      }
+    },
+
+    setPresence: (boardId, users) => {
+      if (get().boardId === boardId) {
+        set({ presence: users });
+      }
+    },
   };
 });
 
@@ -772,8 +1119,15 @@ export function resetBoardStore(): void {
   boardsGeneration += 1;
   cardsGeneration += 1;
   pendingCardsLoad = null;
+  columnsGeneration += 1;
+  pendingColumnsLoad = null;
+  snapshotGeneration += 1;
   latestCardEdits.clear();
   cardEditsInFlight.clear();
+  columnMoveInFlight = null;
+  cardMoveInFlight = null;
+  columnsChangedDuringMove = false;
+  cardsChangedDuringMove = false;
   useBoardStore.setState(initialState);
 }
 

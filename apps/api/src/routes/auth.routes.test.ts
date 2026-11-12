@@ -11,7 +11,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { REFRESH_COOKIE_NAME } from '../controllers/auth.controller.js';
 import type { DbClient } from '../repositories/db.js';
-import { hashRefreshToken } from '../services/token.service.js';
+import {
+  ACCESS_TOKEN_AUDIENCE,
+  ACCESS_TOKEN_ISSUER,
+  hashRefreshToken,
+} from '../services/token.service.js';
 import { buildTestApp, createTestDb, resetDatabase, TEST_JWT_SECRET } from '../test/helpers.js';
 
 const credentials = { email: 'jane@example.com', password: 'correct-horse-battery', name: 'Jane' };
@@ -213,6 +217,8 @@ describe('GET /auth/me', () => {
     const expired = await new SignJWT()
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(body.user.id)
+      .setIssuer(ACCESS_TOKEN_ISSUER)
+      .setAudience(ACCESS_TOKEN_AUDIENCE)
       .setIssuedAt(nowSeconds - 3600)
       .setExpirationTime(nowSeconds - 60)
       .sign(new TextEncoder().encode(TEST_JWT_SECRET));
@@ -227,6 +233,8 @@ describe('GET /auth/me', () => {
     const forged = await new SignJWT()
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(body.user.id)
+      .setIssuer(ACCESS_TOKEN_ISSUER)
+      .setAudience(ACCESS_TOKEN_AUDIENCE)
       .setExpirationTime('15m')
       .sign(new TextEncoder().encode('another-secret-that-is-long-enough-0123456789'));
 
