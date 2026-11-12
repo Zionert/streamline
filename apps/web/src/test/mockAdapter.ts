@@ -23,6 +23,8 @@ export interface RecordedRequest {
   method: string;
   url: string;
   authorization: string | undefined;
+  /** The `X-Socket-Id` header (the socket of the client that makes a change). */
+  socketId: string | undefined;
   data: unknown;
   withCredentials: boolean | undefined;
 }
@@ -43,10 +45,12 @@ export function createMockAdapter() {
     const method = (config.method ?? 'get').toUpperCase();
     const url = config.url ?? '';
     const authorization = config.headers.get('Authorization');
+    const socketId = config.headers.get('X-Socket-Id');
     requests.push({
       method,
       url,
       authorization: typeof authorization === 'string' ? authorization : undefined,
+      socketId: typeof socketId === 'string' ? socketId : undefined,
       data: typeof config.data === 'string' ? (JSON.parse(config.data) as unknown) : config.data,
       withCredentials: config.withCredentials,
     });

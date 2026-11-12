@@ -11,6 +11,7 @@ import {
 import type { Request, Response } from 'express';
 
 import { NotFoundError } from '../errors/app-error.js';
+import { changeOrigin } from './change-origin.js';
 import { getAuthUserId } from '../middleware/require-auth.js';
 import { getBoardMembership } from '../middleware/require-board-permission.js';
 import type { BoardService } from '../services/board.service.js';
@@ -40,11 +41,13 @@ export function createBoardController(boardService: BoardService) {
 
     update: async (req: Request, res: Response<BoardResponse>): Promise<void> => {
       const input = updateBoardSchema.parse(req.body);
-      res.json({ board: await boardService.update(getBoardMembership(res), input) });
+      res.json({
+        board: await boardService.update(getBoardMembership(res), input, changeOrigin(req)),
+      });
     },
 
-    remove: async (_req: Request, res: Response): Promise<void> => {
-      await boardService.delete(getBoardMembership(res));
+    remove: async (req: Request, res: Response): Promise<void> => {
+      await boardService.delete(getBoardMembership(res), changeOrigin(req));
       res.status(204).end();
     },
 
@@ -54,7 +57,11 @@ export function createBoardController(boardService: BoardService) {
 
     addMember: async (req: Request, res: Response<BoardMemberResponse>): Promise<void> => {
       const input = addBoardMemberSchema.parse(req.body);
-      const member = await boardService.addMember(getBoardMembership(res), input);
+      const member = await boardService.addMember(
+        getBoardMembership(res),
+        input,
+        changeOrigin(req),
+      );
       res.status(201).json({ member });
     },
 
@@ -64,12 +71,17 @@ export function createBoardController(boardService: BoardService) {
         getBoardMembership(res),
         targetUserId(req),
         input,
+        changeOrigin(req),
       );
       res.json({ member });
     },
 
     removeMember: async (req: Request, res: Response): Promise<void> => {
-      await boardService.removeMember(getBoardMembership(res), targetUserId(req));
+      await boardService.removeMember(
+        getBoardMembership(res),
+        targetUserId(req),
+        changeOrigin(req),
+      );
       res.status(204).end();
     },
   };

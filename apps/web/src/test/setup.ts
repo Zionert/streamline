@@ -1,8 +1,11 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
+import { setActiveSocket, setSocketFactory } from '@/lib/socket';
 import { resetThemeStore } from '@/stores/theme';
+
+import { FakeSocket } from './fakeSocket';
 
 import { matchMediaStub, resetMediaQueries } from './matchMedia';
 
@@ -31,8 +34,14 @@ for (const [name, shim] of Object.entries(elementShims)) {
   }
 }
 
+// Board pages open a socket: by default it never connects (tests of live updates drive their own).
+beforeEach(() => {
+  setSocketFactory(() => new FakeSocket().asSocket());
+});
+
 afterEach(() => {
   cleanup();
+  setActiveSocket(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   resetMediaQueries();

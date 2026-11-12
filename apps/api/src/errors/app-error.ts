@@ -31,6 +31,16 @@ export class UnauthorizedError extends AppError {
 }
 
 /**
+ * A correctly signed access token that has expired. Keeps the generic `UNAUTHORIZED` code in REST
+ * responses (clients refresh on any 401); the Socket.io handshake reports it as `TOKEN_EXPIRED`.
+ */
+export class AccessTokenExpiredError extends UnauthorizedError {
+  constructor(message = 'Invalid or expired access token') {
+    super(message);
+  }
+}
+
+/**
  * The refresh token was already exchanged moments ago (e.g. several tabs refreshing at once).
  * Not treated as theft; the client should keep its cookie and retry.
  */

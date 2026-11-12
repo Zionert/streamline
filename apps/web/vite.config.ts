@@ -24,6 +24,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: apiProxyTarget,
           changeOrigin: true,
+          // Socket.io (`/api/socket.io`) upgrades to WebSocket through the same proxy.
+          ws: true,
           rewrite: (requestPath) => requestPath.replace(/^\/api/, ''),
         },
       },

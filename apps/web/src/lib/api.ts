@@ -1,7 +1,13 @@
-import { authResponseSchema, errorResponseSchema, type AuthResponse } from '@streamline/shared';
+import {
+  authResponseSchema,
+  errorResponseSchema,
+  SOCKET_ID_HEADER,
+  type AuthResponse,
+} from '@streamline/shared';
 import axios, { type AxiosAdapter, type AxiosInstance, isAxiosError } from 'axios';
 import { ZodError } from 'zod';
 
+import { getActiveSocketId } from '@/lib/socket';
 import { useAuthStore } from '@/stores/auth';
 
 declare module 'axios' {
@@ -50,6 +56,9 @@ function isRefreshTokenRotated(error: unknown): boolean {
 function endsSession(error: unknown): boolean {
   return isUnauthorized(error) || error instanceof ZodError;
 }
+
+/** Requests that change data: their broadcast is not echoed to this client's socket. */
+const READ_ONLY_METHODS = new Set(['get', 'head', 'options']);
 
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -155,6 +164,10 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     config.sentAccessToken = accessToken;
     if (accessToken) {
       config.headers.set('Authorization', `Bearer ${accessToken}`);
+    }
+    const socketId = getActiveSocketId();
+    if (socketId && !READ_ONLY_METHODS.has((config.method ?? 'get').toLowerCase())) {
+      config.headers.set(SOCKET_ID_HEADER, socketId);
     }
     return config;
   });

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { setActiveSocket } from '@/lib/socket';
 import { resetAuthStore, useAuthStore } from '@/stores/auth';
+import { FakeSocket } from '@/test/fakeSocket';
 import { sessionWith, testUser } from '@/test/fixtures';
 import {
   createMockAdapter,
@@ -69,6 +71,27 @@ describe('api client', () => {
     await api.get('/health');
 
     expect(mock.requests[0]?.authorization).toBeUndefined();
+  });
+
+  it('sends the id of the connected board socket with changes but not with reads', async () => {
+    const { api } = setup();
+    loggedInWith('token-1');
+    const socket = new FakeSocket();
+    setActiveSocket(socket.asSocket());
+    mock.on('GET', '/boards', { status: 200, data: {} });
+    mock.on('POST', '/boards', { status: 201, data: {} });
+
+    await api.post('/boards', {});
+    socket.serverConnect();
+    await api.get('/boards');
+    await api.post('/boards', {});
+
+    expect(mock.requests.map((request) => request.socketId)).toEqual([
+      undefined,
+      undefined,
+      socket.id,
+    ]);
+    expect(socket.id).toMatch(/^socket-/);
   });
 
   it('refreshes the session on 401 and retries the request with the new token', async () => {

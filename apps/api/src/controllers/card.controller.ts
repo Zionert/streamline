@@ -11,6 +11,7 @@ import type { Request, Response } from 'express';
 import { NotFoundError } from '../errors/app-error.js';
 import { getBoardMembership } from '../middleware/require-board-permission.js';
 import { CARD_NOT_FOUND_MESSAGE, type CardService } from '../services/card.service.js';
+import { changeOrigin } from './change-origin.js';
 
 function cardId(req: Request): string {
   const { cardId: id } = req.params;
@@ -28,7 +29,7 @@ export function createCardController(cardService: CardService) {
 
     create: async (req: Request, res: Response<CardResponse>): Promise<void> => {
       const input = createCardSchema.parse(req.body);
-      const card = await cardService.create(getBoardMembership(res), input);
+      const card = await cardService.create(getBoardMembership(res), input, changeOrigin(req));
       res.status(201).json({ card });
     },
 
@@ -40,18 +41,28 @@ export function createCardController(cardService: CardService) {
 
     update: async (req: Request, res: Response<CardResponse>): Promise<void> => {
       const input = updateCardSchema.parse(req.body);
-      const card = await cardService.update(getBoardMembership(res), cardId(req), input);
+      const card = await cardService.update(
+        getBoardMembership(res),
+        cardId(req),
+        input,
+        changeOrigin(req),
+      );
       res.json({ card });
     },
 
     move: async (req: Request, res: Response<CardResponse>): Promise<void> => {
       const input = moveCardSchema.parse(req.body);
-      const card = await cardService.move(getBoardMembership(res), cardId(req), input);
+      const card = await cardService.move(
+        getBoardMembership(res),
+        cardId(req),
+        input,
+        changeOrigin(req),
+      );
       res.json({ card });
     },
 
     remove: async (req: Request, res: Response): Promise<void> => {
-      await cardService.delete(getBoardMembership(res), cardId(req));
+      await cardService.delete(getBoardMembership(res), cardId(req), changeOrigin(req));
       res.status(204).end();
     },
   };
