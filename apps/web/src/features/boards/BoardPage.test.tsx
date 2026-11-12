@@ -1,4 +1,4 @@
-import type { BoardRole, Column } from '@streamline/shared';
+import type { BoardRole, Card, Column } from '@streamline/shared';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useBoardStore } from '@/stores/board';
 import {
   boardWith,
+  cardListFor,
   columnWith,
   defaultColumns,
   memberWith,
@@ -21,6 +22,7 @@ const mock = setupMockApi();
 const BOARD = '/boards/board-1';
 const COLUMNS = `${BOARD}/columns`;
 const MEMBERS = `${BOARD}/members`;
+const CARDS = `${BOARD}/cards`;
 
 const owner = memberWith({ userId: 'user-owner', name: 'Olga Owner', email: 'olga@example.com' });
 const admin = memberWith({
@@ -40,7 +42,7 @@ const viewer = memberWith({
 async function renderBoard(
   role: BoardRole,
   columns: Column[] = defaultColumns(),
-  options: { strict?: boolean } = {},
+  options: { strict?: boolean; cards?: Card[]; path?: string } = {},
 ) {
   useAuthStore.getState().setSession(sessionWith('token-1'));
   const self = memberWith({ role });
@@ -49,7 +51,8 @@ async function renderBoard(
   mock.current.on('GET', BOARD, { status: 200, data: { board: boardWith({ role }) } });
   mock.current.on('GET', COLUMNS, { status: 200, data: { columns } });
   mock.current.on('GET', MEMBERS, { status: 200, data: { members } });
-  const result = renderApp(BOARD, options);
+  mock.current.on('GET', CARDS, { status: 200, data: cardListFor(columns, options.cards) });
+  const result = renderApp(options.path ?? BOARD, options);
   await screen.findByRole('heading', { level: 1, name: 'Board' });
   return result;
 }
@@ -122,13 +125,13 @@ describe('BoardPage: layout', () => {
     expect(screen.getByRole('button', { name: 'Sort' })).toBeDisabled();
     const quickAdd = screen.getAllByRole('button', { name: /^Add a card to/ });
     expect(quickAdd).toHaveLength(4);
-    quickAdd.forEach((button) => expect(button).toBeDisabled());
+    quickAdd.forEach((button) => expect(button).toBeEnabled());
 
     fireEvent.click(within(breadcrumb).getByRole('link', { name: 'Boards' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/boards'));
   });
 
-  it('keeps the filter text and member highlight in local state only', async () => {
+  it('toggles the filter text and member highlight without server requests', async () => {
     await renderBoard('OWNER');
     const filter = screen.getByRole('searchbox', { name: 'Filter cards' });
 
@@ -142,7 +145,7 @@ describe('BoardPage: layout', () => {
     expect(adam).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(adam);
     expect(adam).toHaveAttribute('aria-pressed', 'false');
-    // Nothing is sent to the server: there are no cards to filter yet.
+    // Filtering is view-only: nothing is sent to the server.
     expect(mock.current.requests.filter((request) => request.method !== 'GET')).toHaveLength(0);
   });
 
@@ -154,6 +157,7 @@ describe('BoardPage: layout', () => {
     mock.current.on('GET', BOARD, { status: 200, data: { board: boardWith({ role: 'MEMBER' }) } });
     mock.current.on('GET', COLUMNS, { status: 200, data: { columns: defaultColumns() } });
     mock.current.on('GET', MEMBERS, { status: 200, data: { members } });
+    mock.current.on('GET', CARDS, { status: 200, data: cardListFor(defaultColumns()) });
     renderApp(BOARD);
 
     const stack = await screen.findByRole('group', { name: 'Board members' });
@@ -169,6 +173,7 @@ describe('BoardPage: layout', () => {
     mock.current.on('GET', BOARD, () => reply.promise);
     mock.current.on('GET', COLUMNS, { status: 200, data: { columns: defaultColumns() } });
     mock.current.on('GET', MEMBERS, { status: 200, data: { members: [] } });
+    mock.current.on('GET', CARDS, { status: 200, data: cardListFor(defaultColumns()) });
     renderApp(BOARD);
 
     expect(await screen.findByRole('status')).toHaveTextContent('Loading board...');
@@ -184,6 +189,7 @@ describe('BoardPage: layout', () => {
     mock.current.on('GET', BOARD, { status: 404, data: errorBody('NOT_FOUND') });
     mock.current.on('GET', COLUMNS, { status: 404, data: errorBody('NOT_FOUND') });
     mock.current.on('GET', MEMBERS, { status: 404, data: errorBody('NOT_FOUND') });
+    mock.current.on('GET', CARDS, { status: 404, data: errorBody('NOT_FOUND') });
     const { router } = renderApp(BOARD);
 
     expect(await screen.findByRole('heading', { name: 'Board not found' })).toBeVisible();
@@ -200,6 +206,7 @@ describe('BoardPage: layout', () => {
     });
     mock.current.on('GET', COLUMNS, { status: 200, data: { columns: defaultColumns() } });
     mock.current.on('GET', MEMBERS, { status: 200, data: { members: [] } });
+    mock.current.on('GET', CARDS, { status: 200, data: cardListFor(defaultColumns()) });
     renderApp(BOARD);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not load the board/i);

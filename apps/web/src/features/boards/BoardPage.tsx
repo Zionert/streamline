@@ -1,14 +1,15 @@
-import { hasBoardPermission, type Board, type BoardMember } from '@streamline/shared';
+import { hasBoardPermission, type Board, type BoardMember, type Card } from '@streamline/shared';
 import { ArrowUpDown, PanelLeft, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, Outlet, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
-import { AvatarStack } from '@/components/ui/avatar';
+import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { isFilterActive, type CardFilter } from '@/features/cards/cardFilter';
 import { MOBILE_SCREEN_QUERY, useMediaQuery } from '@/hooks/useMediaQuery';
 import { useBoardStore } from '@/stores/board';
 
@@ -16,13 +17,13 @@ import { AddColumnGhost } from './AddColumnForm';
 import { BoardColumns } from './BoardColumns';
 import { BOARD_SIDEBAR_ID, BoardSidebar } from './BoardSidebar';
 import { MembersDialog } from './MembersDialog';
-import { BOARDS_PATH } from './paths';
+import { BOARDS_PATH, cardPath, type CardLocationState } from './paths';
 import { useSidebarState } from './sidebarState';
 
 /** Toast id of the board notice: a newer notice replaces the previous one, like a banner. */
 const NOTICE_TOAST_ID = 'board-notice';
 
-/** A single board: its columns (with reordering and settings) and its members. */
+/** A single board: its columns and cards (with reordering and settings) and its members. */
 export function BoardPage() {
   const { boardId = '' } = useParams();
   const openedId = useBoardStore((state) => state.boardId);
@@ -95,14 +96,47 @@ function BoardView({ board }: { board: Board }) {
   const columns = useBoardStore((state) => state.columns);
   const members = useBoardStore((state) => state.members);
   const isMoving = useBoardStore((state) => state.isMovingColumn);
+  const cardsByColumn = useBoardStore((state) => state.cardsByColumn);
+  const cardsStatus = useBoardStore((state) => state.cardsStatus);
+  const isMovingCard = useBoardStore((state) => state.isMovingCard);
   const notice = useBoardStore((state) => state.notice);
   const moveColumn = useBoardStore((state) => state.moveColumn);
+  const moveCard = useBoardStore((state) => state.moveCard);
+  const reloadCards = useBoardStore((state) => state.reloadCards);
   const dismissNotice = useBoardStore((state) => state.dismissNotice);
+  const navigate = useNavigate();
   const [isMembersOpen, setIsMembersOpen] = useState(false);
+  const [filterText, setFilterText] = useState('');
+  const [activeMemberIds, setActiveMemberIds] = useState<ReadonlySet<string>>(() => new Set());
   const isMobile = useMediaQuery(MOBILE_SCREEN_QUERY);
   const sidebar = useSidebarState(isMobile);
   const canWrite = hasBoardPermission(board.role, 'column:write');
   const canEditSettings = hasBoardPermission(board.role, 'column:settings');
+  const canWriteCards = hasBoardPermission(board.role, 'card:write');
+  const filter = useMemo<CardFilter>(
+    () => ({ text: filterText, assigneeIds: activeMemberIds }),
+    [filterText, activeMemberIds],
+  );
+  const filtering = isFilterActive(filter);
+  const membersById = useMemo(
+    () => new Map<string, AvatarStackPerson>(members.map((member) => [member.userId, member])),
+    [members],
+  );
+
+  const toggleMember = (userId: string) => {
+    setActiveMemberIds((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(userId)) {
+        next.add(userId);
+      }
+      return next;
+    });
+  };
+
+  const openCard = (card: Card) => {
+    const state: CardLocationState = { fromBoard: true };
+    void navigate(cardPath(board.id, card.key), { state });
+  };
 
   // Failed operations without a form of their own (e.g. drag & drop) are reported as toasts;
   // the notice is cleared once shown.
@@ -141,7 +175,22 @@ function BoardView({ board }: { board: Board }) {
           <Breadcrumbs items={[{ label: 'Boards', to: BOARDS_PATH }, { label: board.name }]} />
         </div>
         <h1 className="text-2xl font-semibold">Board</h1>
-        <BoardToolbar members={members} />
+        <BoardToolbar
+          members={members}
+          filterText={filterText}
+          onFilterTextChange={setFilterText}
+          activeMemberIds={activeMemberIds}
+          onToggleMember={toggleMember}
+          showDragHint={filtering && canWriteCards}
+        />
+        {cardsStatus === 'error' && (
+          <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+            Could not load the cards.
+            <Button variant="outline" size="sm" onClick={() => void reloadCards()}>
+              Retry
+            </Button>
+          </div>
+        )}
         {/* `relative` makes this scroller the containing block of visually hidden (absolute)
             labels inside columns; otherwise they escape it and widen the whole page. */}
         <div className="relative flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-4">
@@ -151,9 +200,20 @@ function BoardView({ board }: { board: Board }) {
             canEditSettings={canEditSettings}
             isMoving={isMoving}
             onMove={(columnId, toIndex) => void moveColumn(columnId, toIndex)}
+            cardsByColumn={cardsByColumn}
+            filter={filter}
+            isLoadingCards={cardsStatus === 'loading' || cardsStatus === 'idle'}
+            canWriteCards={canWriteCards}
+            // A filtered view hides cards, so the neighbours of a drop would be wrong.
+            isCardDragDisabled={isMovingCard || filtering}
+            membersById={membersById}
+            onMoveCard={(cardId, toColumnId, toIndex) => void moveCard(cardId, toColumnId, toIndex)}
+            onOpenCard={openCard}
           />
           {canWrite && <AddColumnGhost />}
         </div>
+        {/* Card details: a modal route over the board. */}
+        <Outlet />
         <MembersDialog
           boardName={board.name}
           myRole={board.role}
@@ -165,21 +225,26 @@ function BoardView({ board }: { board: Board }) {
   );
 }
 
-function BoardToolbar({ members }: { members: readonly BoardMember[] }) {
-  // Card filters are kept in local state only: there are no cards to filter until cards exist.
-  const [filter, setFilter] = useState('');
-  const [activeMemberIds, setActiveMemberIds] = useState<ReadonlySet<string>>(() => new Set());
+interface BoardToolbarProps {
+  members: readonly BoardMember[];
+  filterText: string;
+  onFilterTextChange: (text: string) => void;
+  /** Members whose cards are shown (all cards when empty). */
+  activeMemberIds: ReadonlySet<string>;
+  onToggleMember: (userId: string) => void;
+  /** Explains that dragging cards is paused while a filter is active. */
+  showDragHint: boolean;
+}
 
-  const toggleMember = (userId: string) => {
-    setActiveMemberIds((previous) => {
-      const next = new Set(previous);
-      if (!next.delete(userId)) {
-        next.add(userId);
-      }
-      return next;
-    });
-  };
-
+/** View-only card filters: text (title or key) and assignees. */
+function BoardToolbar({
+  members,
+  filterText,
+  onFilterTextChange,
+  activeMemberIds,
+  onToggleMember,
+  showDragHint,
+}: BoardToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div className="relative w-[200px]">
@@ -192,9 +257,9 @@ function BoardToolbar({ members }: { members: readonly BoardMember[] }) {
           type="search"
           aria-label="Filter cards"
           placeholder="Filter cards"
-          value={filter}
+          value={filterText}
           className="h-8 pl-8"
-          onChange={(event) => setFilter(event.target.value)}
+          onChange={(event) => onFilterTextChange(event.target.value)}
         />
       </div>
       {members.length > 0 && (
@@ -203,13 +268,14 @@ function BoardToolbar({ members }: { members: readonly BoardMember[] }) {
           max={4}
           label="Board members"
           isActive={(person) => activeMemberIds.has(person.userId)}
-          onToggle={(person) => toggleMember(person.userId)}
+          onToggle={(person) => onToggleMember(person.userId)}
         />
       )}
-      <Button variant="subtle" size="sm" disabled title="Sorting becomes available with cards">
+      <Button variant="subtle" size="sm" disabled title="Sorting is not available yet">
         <ArrowUpDown strokeWidth={2} />
         Sort
       </Button>
+      {showDragHint && <p className="text-xs text-subtle">Clear the filter to drag cards.</p>}
     </div>
   );
 }

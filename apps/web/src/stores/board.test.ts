@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { useAuthStore } from '@/stores/auth';
 import {
   boardWith,
+  cardListFor,
   columnWith,
   defaultColumns,
   memberWith,
@@ -20,6 +21,7 @@ const mock = setupMockApi();
 const BOARD = '/boards/board-1';
 const COLUMNS = `${BOARD}/columns`;
 const MEMBERS = `${BOARD}/members`;
+const CARDS = `${BOARD}/cards`;
 
 const titles = () => useBoardStore.getState().columns.map((column) => column.title);
 
@@ -27,6 +29,7 @@ function mockOpenBoard(columns: Column[] = defaultColumns(), role = boardWith().
   mock.current.on('GET', BOARD, { status: 200, data: { board: boardWith({ role }) } });
   mock.current.on('GET', COLUMNS, { status: 200, data: { columns } });
   mock.current.on('GET', MEMBERS, { status: 200, data: { members: [memberWith()] } });
+  mock.current.on('GET', CARDS, { status: 200, data: cardListFor(columns) });
 }
 
 async function openBoard(columns?: Column[]) {
@@ -132,6 +135,7 @@ describe('openBoard', () => {
     mock.current.on('GET', BOARD, { status: 404, data: errorBody('NOT_FOUND') });
     mock.current.on('GET', COLUMNS, { status: 404, data: errorBody('NOT_FOUND') });
     mock.current.on('GET', MEMBERS, { status: 404, data: errorBody('NOT_FOUND') });
+    mock.current.on('GET', CARDS, { status: 404, data: errorBody('NOT_FOUND') });
 
     await useBoardStore.getState().openBoard('board-1');
 
@@ -143,6 +147,7 @@ describe('openBoard', () => {
     mock.current.on('GET', BOARD, () => slow.promise);
     mock.current.on('GET', COLUMNS, { status: 200, data: { columns: defaultColumns() } });
     mock.current.on('GET', MEMBERS, { status: 200, data: { members: [] } });
+    mock.current.on('GET', CARDS, { status: 200, data: cardListFor(defaultColumns()) });
     const first = useBoardStore.getState().openBoard('board-1');
 
     mock.current.on('GET', '/boards/board-2', {
@@ -151,6 +156,7 @@ describe('openBoard', () => {
     });
     mock.current.on('GET', '/boards/board-2/columns', { status: 200, data: { columns: [] } });
     mock.current.on('GET', '/boards/board-2/members', { status: 200, data: { members: [] } });
+    mock.current.on('GET', '/boards/board-2/cards', { status: 200, data: { columns: [] } });
     await useBoardStore.getState().openBoard('board-2');
     slow.resolve({ status: 200, data: { board: boardWith() } });
     await first;
