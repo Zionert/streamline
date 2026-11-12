@@ -4,6 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>StreamLine</title>
+    <script>
+      // Applies the saved colour theme before the first paint (same key as src/lib/theme.ts).
+      (function () {
+        var preference = 'light';
+        try {
+          var stored = window.localStorage.getItem('streamline-theme');
+          if (stored === 'light' || stored === 'dark' || stored === 'system') {
+            preference = stored;
+          }
+        } catch (error) {
+          // Storage unavailable: keep the default theme.
+        }
+        var dark =
+          preference === 'dark' ||
+          (preference === 'system' &&
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

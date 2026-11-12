@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 type AuthFieldProps = ComponentProps<typeof Input> & {
   id: string;
@@ -10,7 +11,7 @@ type AuthFieldProps = ComponentProps<typeof Input> & {
 };
 
 /** Labelled input with a field-level error message linked via `aria-describedby`. */
-export function AuthField({ id, label, error, ...inputProps }: AuthFieldProps) {
+export function AuthField({ id, label, error, className, ...inputProps }: AuthFieldProps) {
   const errorId = `${id}-error`;
   return (
     <div className="grid gap-2">
@@ -19,6 +20,7 @@ export function AuthField({ id, label, error, ...inputProps }: AuthFieldProps) {
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
+        className={cn('h-10', className)}
         {...inputProps}
       />
       {error && (

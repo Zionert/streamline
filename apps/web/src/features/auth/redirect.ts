@@ -1,9 +1,12 @@
+import { BOARDS_PATH } from '@/features/boards/paths';
+
 /** Router state set by `ProtectedRoute` when it sends a guest to the login page. */
 export interface AuthRedirectState {
   from: { pathname: string; search?: string; hash?: string };
 }
 
-export const HOME_PATH = '/';
+/** Landing page of a logged-in user. */
+export const HOME_PATH = BOARDS_PATH;
 export const LOGIN_PATH = '/login';
 export const REGISTER_PATH = '/register';
 
