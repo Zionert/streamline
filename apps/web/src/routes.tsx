@@ -9,7 +9,8 @@ import { RegisterPage } from '@/features/auth/RegisterPage';
 import { HOME_PATH, LOGIN_PATH, REGISTER_PATH } from '@/features/auth/redirect';
 import { BoardPage } from '@/features/boards/BoardPage';
 import { BoardsPage } from '@/features/boards/BoardsPage';
-import { BOARDS_PATH, BOARD_PATH_PATTERN } from '@/features/boards/paths';
+import { BOARDS_PATH, BOARD_PATH_PATTERN, CARD_ROUTE_PATH } from '@/features/boards/paths';
+import { CardDetailsRoute } from '@/features/cards/CardDetailsRoute';
 
 export const routes: RouteObject[] = [
   {
@@ -30,7 +31,12 @@ export const routes: RouteObject[] = [
             children: [
               { path: '/', element: <Navigate to={HOME_PATH} replace /> },
               { path: BOARDS_PATH, element: <BoardsPage /> },
-              { path: BOARD_PATH_PATTERN, element: <BoardPage /> },
+              {
+                path: BOARD_PATH_PATTERN,
+                element: <BoardPage />,
+                // Card details open as a modal over the board, which stays rendered behind.
+                children: [{ path: CARD_ROUTE_PATH, element: <CardDetailsRoute /> }],
+              },
             ],
           },
         ],

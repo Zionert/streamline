@@ -1,4 +1,4 @@
-import { BOARD_ERROR_CODES, COLUMN_ERROR_CODES } from '@streamline/shared';
+import { BOARD_ERROR_CODES, CARD_ERROR_CODES, COLUMN_ERROR_CODES } from '@streamline/shared';
 import { isAxiosError } from 'axios';
 
 import { getApiErrorInfo } from '@/lib/api-error';
@@ -6,7 +6,7 @@ import { getApiErrorInfo } from '@/lib/api-error';
 const NETWORK_ERROR = 'Unable to reach the server. Please try again.';
 const UNKNOWN_ERROR = 'Something went wrong. Please try again.';
 
-/** Messages for domain error codes of the board, member and column endpoints. */
+/** Messages for domain error codes of the board, member, column and card endpoints. */
 const CODE_MESSAGES: Readonly<Record<string, string>> = {
   [BOARD_ERROR_CODES.USER_NOT_FOUND]: 'No registered user has this email address.',
   [BOARD_ERROR_CODES.ALREADY_MEMBER]: 'This user is already a member of the board.',
@@ -19,6 +19,9 @@ const CODE_MESSAGES: Readonly<Record<string, string>> = {
     'The board was changed in the meantime. The columns have been refreshed.',
   [COLUMN_ERROR_CODES.NEIGHBOR_NOT_FOUND]:
     'The board was changed in the meantime. The columns have been refreshed.',
+  [COLUMN_ERROR_CODES.COLUMN_NOT_EMPTY]: 'Move or delete the cards in this column first.',
+  [CARD_ERROR_CODES.WIP_LIMIT_EXCEEDED]: 'This column has reached its WIP limit.',
+  [CARD_ERROR_CODES.ASSIGNEE_NOT_MEMBER]: 'The assignee must be a member of this board.',
   FORBIDDEN: 'You do not have permission to do this.',
   NOT_FOUND: 'It no longer exists. It may have been deleted.',
 };

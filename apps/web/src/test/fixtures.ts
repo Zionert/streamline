@@ -1,4 +1,12 @@
-import type { AuthResponse, Board, BoardMember, Column, PublicUser } from '@streamline/shared';
+import type {
+  AuthResponse,
+  Board,
+  BoardMember,
+  Card,
+  Column,
+  ColumnCards,
+  PublicUser,
+} from '@streamline/shared';
 
 export const testUser: PublicUser = {
   id: 'user-1',
@@ -63,5 +71,40 @@ export function memberWith(overrides: Partial<BoardMember> = {}): BoardMember {
     role: 'OWNER',
     joinedAt: TIMESTAMP,
     ...overrides,
+  };
+}
+
+/** A card of board-1 (key `SB-<number>`), MEDIUM priority, unassigned unless overridden. */
+export function cardWith(
+  overrides: Partial<Card> & Pick<Card, 'id' | 'number' | 'columnId' | 'rank'>,
+): Card {
+  return {
+    key: `SB-${String(overrides.number)}`,
+    boardId: 'board-1',
+    title: `Card ${String(overrides.number)}`,
+    description: null,
+    priority: 'MEDIUM',
+    assigneeId: null,
+    dueDate: null,
+    createdAt: TIMESTAMP,
+    updatedAt: TIMESTAMP,
+    ...overrides,
+  };
+}
+
+/** Body of `GET /boards/:boardId/cards`: every given column with its cards (in rank order). */
+export function cardListFor(
+  columns: readonly Column[],
+  cards: readonly Card[] = [],
+): {
+  columns: ColumnCards[];
+} {
+  return {
+    columns: columns.map((column) => ({
+      columnId: column.id,
+      cards: cards
+        .filter((card) => card.columnId === column.id)
+        .sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0)),
+    })),
   };
 }

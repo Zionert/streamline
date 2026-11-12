@@ -4,7 +4,9 @@ import {
   type AssignableBoardRole,
   type Board,
   type BoardMember,
+  type Card,
   type Column,
+  type UpdateCardInput,
   type UpdateColumnSettingsInput,
 } from '@streamline/shared';
 import { create } from 'zustand';
@@ -23,11 +25,31 @@ import {
   sortByRank,
 } from '@/features/boards/columnOrder';
 import * as columnsApi from '@/features/boards/columnsApi';
+import {
+  getCardErrorMessage,
+  isColumnGoneError,
+  needsCardsReload,
+} from '@/features/cards/cardErrorMessage';
+import {
+  cardsOf,
+  findCard,
+  groupCards,
+  insertCardByRank,
+  moveCardLocally,
+  removeCard,
+  replaceCard,
+  restoreCardPosition,
+  unassignCards,
+  type CardsByColumn,
+} from '@/features/cards/cardOrder';
+import * as cardsApi from '@/features/cards/cardsApi';
 import { useAuthStore } from '@/stores/auth';
 
 export type BoardsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export type CurrentBoardStatus = 'idle' | 'loading' | 'ready' | 'not-found' | 'error';
+
+export type CardsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface BoardState {
   /** Boards of the current user (newest first), each with the user's role. */
@@ -46,6 +68,11 @@ export interface BoardState {
   members: BoardMember[];
   /** A column move (and the reload that may follow) is in progress; further drags wait for it. */
   isMovingColumn: boolean;
+  /** Cards of the opened board by column id, in display order (by rank, except during a move). */
+  cardsByColumn: CardsByColumn;
+  cardsStatus: CardsStatus;
+  /** A card move (and the reload that may follow) is in progress; further drags wait for it. */
+  isMovingCard: boolean;
   /** Message about a failed operation that has no form of its own (e.g. drag & drop). */
   notice: string | null;
 
@@ -68,6 +95,21 @@ export interface BoardState {
   updateColumnSettings: (columnId: string, input: UpdateColumnSettingsInput) => Promise<Column>;
   deleteColumn: (columnId: string) => Promise<void>;
 
+  /** Reloads the cards of the opened board; never rejects (a failure sets `notice`). */
+  reloadCards: () => Promise<void>;
+  /** Creates a card at the end of the column (reloads the cards if the server rebalanced). */
+  createCard: (columnId: string, title: string) => Promise<Card>;
+  /**
+   * Moves a card to `toIndex` of `toColumnId` optimistically; never rejects. On failure only this
+   * card goes back and `notice` is set; a stale view or a server-side rebalance triggers a reload.
+   */
+  moveCard: (cardId: string, toColumnId: string, toIndex: number) => Promise<void>;
+  /** Applies the (validated) changes optimistically; restores them and rethrows on failure. */
+  updateCard: (cardId: string, input: UpdateCardInput) => Promise<Card>;
+  deleteCard: (cardId: string) => Promise<void>;
+  /** Shows a card loaded on its own (e.g. opened by its address) if it is not shown yet. */
+  rememberCard: (card: Card) => void;
+
   addMember: (input: AddBoardMemberInput) => Promise<BoardMember>;
   updateMemberRole: (userId: string, role: AssignableBoardRole) => Promise<BoardMember>;
   removeMember: (userId: string) => Promise<void>;
@@ -88,6 +130,9 @@ type BoardData = Pick<
   | 'columns'
   | 'members'
   | 'isMovingColumn'
+  | 'cardsByColumn'
+  | 'cardsStatus'
+  | 'isMovingCard'
   | 'notice'
 >;
 
@@ -99,6 +144,9 @@ const openedBoardInitialState: Omit<BoardData, 'boards' | 'boardsStatus' | 'boar
   columns: [],
   members: [],
   isMovingColumn: false,
+  cardsByColumn: {},
+  cardsStatus: 'idle',
+  isMovingCard: false,
   notice: null,
 };
 
@@ -116,10 +164,88 @@ const initialState: BoardData = {
 let boardGeneration = 0;
 /** The same guard for the board list. */
 let boardsGeneration = 0;
+/**
+ * Incremented by every card list request and by every card move: only the latest list request
+ * may apply its result, and a list read before a move must not undo the move on screen.
+ */
+let cardsGeneration = 0;
+/** Generation of the latest card list request that has not settled yet, or `null`. */
+let pendingCardsLoad: number | null = null;
+
+const CARD_EDIT_FIELDS = ['title', 'description', 'priority', 'assigneeId', 'dueDate'] as const;
+type CardEditField = (typeof CARD_EDIT_FIELDS)[number];
+
+/**
+ * Card edits are numbered; for every card field (`<cardId>:<field>`) the number of the latest
+ * edit is kept. Responses of edits may arrive out of order: a response or a rollback only touches
+ * the fields whose latest edit it belongs to.
+ */
+let cardEditSequence = 0;
+const latestCardEdits = new Map<string, number>();
+const cardEditsInFlight = new Set<number>();
+
+const cardEditKey = (cardId: string, field: CardEditField) => `${cardId}:${field}`;
+
+function editedFields(input: UpdateCardInput): CardEditField[] {
+  return CARD_EDIT_FIELDS.filter((field) => input[field] !== undefined);
+}
+
+function pickFields(input: UpdateCardInput, fields: readonly CardEditField[]): UpdateCardInput {
+  return Object.fromEntries(fields.map((field) => [field, input[field]]));
+}
+
+/**
+ * The server's version of a card after edit `sequence`, except for fields with a newer edit (or
+ * an edit still in flight), which keep their local value. The column and rank always stay local:
+ * an edit never changes them, but a move may be in flight.
+ */
+function mergeEditResponse(current: Card, server: Card, sequence: number): Card {
+  let merged: Card = {
+    ...server,
+    columnId: current.columnId,
+    rank: current.rank,
+    // ISO timestamps of the same format compare correctly as strings.
+    updatedAt: current.updatedAt > server.updatedAt ? current.updatedAt : server.updatedAt,
+  };
+  for (const field of CARD_EDIT_FIELDS) {
+    const latest = latestCardEdits.get(cardEditKey(current.id, field));
+    if (
+      latest !== undefined &&
+      latest !== sequence &&
+      (latest > sequence || cardEditsInFlight.has(latest))
+    ) {
+      merged = { ...merged, [field]: current[field] };
+    }
+  }
+  return merged;
+}
 
 /** Members ordered like the API returns them: by role, then (stable) by joining order. */
 function sortMembers(members: readonly BoardMember[]): BoardMember[] {
   return [...members].sort((a, b) => BOARD_ROLES.indexOf(a.role) - BOARD_ROLES.indexOf(b.role));
+}
+
+/** The card with the fields present in `input` changed (absent fields stay as they are). */
+function applyFields(card: Card, input: UpdateCardInput): Card {
+  return {
+    ...card,
+    ...(input.title === undefined ? {} : { title: input.title }),
+    ...(input.description === undefined ? {} : { description: input.description }),
+    ...(input.priority === undefined ? {} : { priority: input.priority }),
+    ...(input.assigneeId === undefined ? {} : { assigneeId: input.assigneeId }),
+    ...(input.dueDate === undefined ? {} : { dueDate: input.dueDate }),
+  };
+}
+
+/** `current` with the fields present in `input` set back to their values in `previous`. */
+function restoreFields(current: Card, previous: Card, input: UpdateCardInput): Card {
+  return applyFields(current, {
+    ...(input.title === undefined ? {} : { title: previous.title }),
+    ...(input.description === undefined ? {} : { description: previous.description }),
+    ...(input.priority === undefined ? {} : { priority: previous.priority }),
+    ...(input.assigneeId === undefined ? {} : { assigneeId: previous.assigneeId }),
+    ...(input.dueDate === undefined ? {} : { dueDate: previous.dueDate }),
+  });
 }
 
 function requireOpenedBoardId(boardId: string | null): string {
@@ -141,6 +267,55 @@ export const useBoardStore = create<BoardState>()((set, get) => {
     set((state) => ({
       columns: state.columns.map((existing) => (existing.id === column.id ? column : existing)),
     }));
+  }
+
+  function setCards(update: (cardsByColumn: CardsByColumn) => CardsByColumn) {
+    set((state) => ({ cardsByColumn: update(state.cardsByColumn) }));
+  }
+
+  /** Loads the cards of the opened board unless another board is opened meanwhile. */
+  async function loadCards(boardId: string, isCurrent: () => boolean) {
+    const generation = ++cardsGeneration;
+    const isLatest = () => isCurrent() && generation === cardsGeneration;
+    pendingCardsLoad = generation;
+    if (get().cardsStatus !== 'ready') {
+      set({ cardsStatus: 'loading' });
+    }
+    try {
+      const columns = await cardsApi.listCards(boardId);
+      if (isLatest()) {
+        set({ cardsByColumn: groupCards(columns), cardsStatus: 'ready' });
+      }
+    } catch (error) {
+      if (!isLatest()) {
+        return;
+      }
+      if (isNotFoundError(error)) {
+        set({ boardStatus: 'not-found' });
+      } else {
+        // Cards already shown stay and the failure is a notice; a failed first load is shown
+        // by the page itself (with a retry), so it needs no notice.
+        set((state) =>
+          state.cardsStatus === 'ready'
+            ? { notice: getBoardErrorMessage(error) }
+            : { cardsStatus: 'error' },
+        );
+      }
+    } finally {
+      if (pendingCardsLoad === generation) {
+        pendingCardsLoad = null;
+      }
+    }
+  }
+
+  /**
+   * A list request that was already in flight when a card change completed may have been read
+   * before the change: its result would undo the change on screen, so the list is read again.
+   */
+  async function reloadIfListInFlight() {
+    if (pendingCardsLoad !== null) {
+      await get().reloadCards();
+    }
   }
 
   function removeBoardFromList(boardId: string) {
@@ -207,7 +382,10 @@ export const useBoardStore = create<BoardState>()((set, get) => {
 
     openBoard: async (boardId) => {
       const generation = ++boardGeneration;
+      const isCurrent = () => generation === boardGeneration;
       set({ ...openedBoardInitialState, boardId, boardStatus: 'loading' });
+      // Cards load alongside; the columns are shown first, with card skeletons until they arrive.
+      const cardsLoading = loadCards(boardId, isCurrent);
       try {
         const [board, columns, members] = await Promise.all([
           boardsApi.getBoard(boardId),
@@ -227,6 +405,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
           set({ boardStatus: 'error', boardError: getBoardErrorMessage(error) });
         }
       }
+      await cardsLoading;
     },
 
     reloadColumns: async () => {
@@ -357,7 +536,180 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       const { boardId, isCurrent } = captureBoard();
       await columnsApi.deleteColumn(boardId, columnId);
       if (isCurrent()) {
-        set((state) => ({ columns: state.columns.filter((column) => column.id !== columnId) }));
+        set((state) => ({
+          columns: state.columns.filter((column) => column.id !== columnId),
+          cardsByColumn: Object.fromEntries(
+            Object.entries(state.cardsByColumn).filter(([id]) => id !== columnId),
+          ),
+        }));
+      }
+    },
+
+    reloadCards: async () => {
+      if (get().boardId === null) {
+        return;
+      }
+      const { boardId, isCurrent } = captureBoard();
+      await loadCards(boardId, isCurrent);
+    },
+
+    createCard: async (columnId, title) => {
+      const { boardId, isCurrent } = captureBoard();
+      let card: Card;
+      try {
+        card = await cardsApi.createCard(boardId, { columnId, title });
+      } catch (error) {
+        if (isCurrent() && isColumnGoneError(error)) {
+          // The column was deleted elsewhere. The composer disappears with it once the board is
+          // refreshed, so the message is also shown as a notice.
+          set({ notice: getCardErrorMessage(error) });
+          await Promise.all([get().reloadColumns(), get().reloadCards()]);
+        }
+        throw error;
+      }
+      if (!isCurrent()) {
+        return card;
+      }
+      // New cards go to the end of the column. The server may have rebalanced the column to make
+      // room and returns only the new card: if it does not sort after the last local one, reload.
+      const cards = [...cardsOf(get().cardsByColumn, columnId), card];
+      setCards((cardsByColumn) => ({ ...cardsByColumn, [columnId]: cards }));
+      if (!rankFitsAt(cards, cards.length - 1)) {
+        await get().reloadCards();
+      } else {
+        await reloadIfListInFlight();
+      }
+      return card;
+    },
+
+    moveCard: async (cardId, toColumnId, toIndex) => {
+      const { boardId: openedId, cardsByColumn, isMovingCard } = get();
+      if (openedId === null || isMovingCard) {
+        return;
+      }
+      const location = findCard(cardsByColumn, cardId);
+      if (!location) {
+        return;
+      }
+      const sameColumn = location.columnId === toColumnId;
+      const targetLength = cardsOf(cardsByColumn, toColumnId).length;
+      const maxIndex = sameColumn ? targetLength - 1 : targetLength;
+      if ((sameColumn && location.index === toIndex) || toIndex < 0 || toIndex > maxIndex) {
+        return;
+      }
+      const { boardId, isCurrent } = captureBoard();
+      const original = location.card;
+      const originalList = cardsOf(cardsByColumn, location.columnId);
+      const moved = moveCardLocally(cardsByColumn, cardId, toColumnId, toIndex);
+      const neighbors = getMoveNeighbors(cardsOf(moved, toColumnId), toIndex);
+      // A list requested before this move would show the old position: drop its result (and
+      // read the list again once the move is done).
+      const listWasInFlight = pendingCardsLoad !== null;
+      cardsGeneration += 1;
+      set({ cardsByColumn: moved, isMovingCard: true, notice: null });
+
+      let needsReload: boolean;
+      let columnGone = false;
+      try {
+        const card = await cardsApi.moveCard(boardId, cardId, {
+          columnId: toColumnId,
+          ...neighbors,
+        });
+        if (!isCurrent()) {
+          return;
+        }
+        const current = findCard(get().cardsByColumn, cardId);
+        if (current && current.columnId === card.columnId) {
+          const updated = replaceCard(get().cardsByColumn, card);
+          set({ cardsByColumn: updated });
+          // The response carries only the moved card. If its new rank does not fit between the
+          // local neighbours, the server rebalanced the column and the other ranks are outdated
+          // (best effort, as for columns: moves send only ids, so stale ranks are harmless).
+          needsReload = !rankFitsAt(cardsOf(updated, card.columnId), current.index);
+        } else {
+          needsReload = true;
+        }
+      } catch (error) {
+        if (!isCurrent()) {
+          return;
+        }
+        // Undo only this move, keeping changes made to other cards while it was in flight.
+        set((state) => ({
+          cardsByColumn: restoreCardPosition(state.cardsByColumn, original, originalList),
+          notice: getCardErrorMessage(error),
+        }));
+        needsReload = needsCardsReload(error);
+        columnGone = isColumnGoneError(error);
+      }
+      try {
+        if (needsReload || listWasInFlight) {
+          // A column deleted elsewhere must disappear from the board as well.
+          await Promise.all([get().reloadCards(), columnGone ? get().reloadColumns() : undefined]);
+        }
+      } finally {
+        if (isCurrent()) {
+          set({ isMovingCard: false });
+        }
+      }
+    },
+
+    updateCard: async (cardId, input) => {
+      const { boardId, isCurrent } = captureBoard();
+      const fields = editedFields(input);
+      const sequence = ++cardEditSequence;
+      for (const field of fields) {
+        latestCardEdits.set(cardEditKey(cardId, field), sequence);
+      }
+      cardEditsInFlight.add(sequence);
+      const isLatestEdit = (field: CardEditField) =>
+        latestCardEdits.get(cardEditKey(cardId, field)) === sequence;
+      const previous = findCard(get().cardsByColumn, cardId)?.card;
+      if (previous) {
+        setCards((cards) => replaceCard(cards, applyFields(previous, input)));
+      }
+      try {
+        const card = await cardsApi.updateCard(boardId, cardId, input);
+        if (isCurrent()) {
+          setCards((cards) => {
+            const current = findCard(cards, cardId)?.card;
+            return current ? replaceCard(cards, mergeEditResponse(current, card, sequence)) : cards;
+          });
+          void reloadIfListInFlight();
+        }
+        return card;
+      } catch (error) {
+        if (isCurrent()) {
+          if (isNotFoundError(error)) {
+            // The card was deleted elsewhere.
+            setCards((cards) => removeCard(cards, cardId));
+          } else {
+            // Restore only the fields whose latest edit this was: an older failure must not
+            // undo a newer edit, and other changes made meanwhile stay.
+            const current = findCard(get().cardsByColumn, cardId)?.card;
+            const restorable = pickFields(input, fields.filter(isLatestEdit));
+            if (previous && current) {
+              setCards((cards) => replaceCard(cards, restoreFields(current, previous, restorable)));
+            }
+          }
+        }
+        throw error;
+      } finally {
+        cardEditsInFlight.delete(sequence);
+      }
+    },
+
+    deleteCard: async (cardId) => {
+      const { boardId, isCurrent } = captureBoard();
+      await cardsApi.deleteCard(boardId, cardId);
+      if (isCurrent()) {
+        setCards((cards) => removeCard(cards, cardId));
+        await reloadIfListInFlight();
+      }
+    },
+
+    rememberCard: (card) => {
+      if (get().boardId === card.boardId) {
+        setCards((cards) => insertCardByRank(cards, card));
       }
     },
 
@@ -389,7 +741,11 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       const { boardId, isCurrent } = captureBoard();
       await boardsApi.removeMember(boardId, userId);
       if (isCurrent()) {
-        set((state) => ({ members: state.members.filter((member) => member.userId !== userId) }));
+        // The server unassigns the removed member from the cards of the board as well.
+        set((state) => ({
+          members: state.members.filter((member) => member.userId !== userId),
+          cardsByColumn: unassignCards(state.cardsByColumn, userId),
+        }));
       }
     },
 
@@ -414,6 +770,10 @@ export const useBoardStore = create<BoardState>()((set, get) => {
 export function resetBoardStore(): void {
   boardGeneration += 1;
   boardsGeneration += 1;
+  cardsGeneration += 1;
+  pendingCardsLoad = null;
+  latestCardEdits.clear();
+  cardEditsInFlight.clear();
   useBoardStore.setState(initialState);
 }
 

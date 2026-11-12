@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { MOBILE_SCREEN_QUERY, NARROW_SCREEN_QUERY } from '@/hooks/useMediaQuery';
 import { useAuthStore } from '@/stores/auth';
-import { boardWith, defaultColumns, memberWith, sessionWith } from '@/test/fixtures';
+import { boardWith, cardListFor, defaultColumns, memberWith, sessionWith } from '@/test/fixtures';
 import { setMediaQuery } from '@/test/matchMedia';
 import { renderApp, setupMockApi } from '@/test/renderApp';
 
@@ -19,6 +19,7 @@ async function renderBoard(role: BoardRole = 'OWNER') {
   useAuthStore.getState().setSession(sessionWith('token-1'));
   mock.current.on('GET', BOARD, { status: 200, data: { board: boardWith({ role }) } });
   mock.current.on('GET', `${BOARD}/columns`, { status: 200, data: { columns: defaultColumns() } });
+  mock.current.on('GET', `${BOARD}/cards`, { status: 200, data: cardListFor(defaultColumns()) });
   mock.current.on('GET', `${BOARD}/members`, {
     status: 200,
     data: { members: [memberWith({ role })] },
