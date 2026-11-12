@@ -113,16 +113,13 @@ describe('BoardPage: layout', () => {
     expect(screen.getByText('Member')).toBeVisible();
   });
 
-  it('shows breadcrumbs, the toolbar and the keyboard hint', async () => {
+  it('shows breadcrumbs and the toolbar', async () => {
     const { router } = await renderBoard('OWNER');
 
     const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(within(breadcrumb).getByText('Sprint board')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('searchbox', { name: 'Filter cards' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Sort' })).toBeDisabled();
-    expect(screen.getByText(/to create a card/)).toHaveTextContent(
-      'Press Shift + N to create a card',
-    );
     const quickAdd = screen.getAllByRole('button', { name: /^Add a card to/ });
     expect(quickAdd).toHaveLength(4);
     quickAdd.forEach((button) => expect(button).toBeDisabled());

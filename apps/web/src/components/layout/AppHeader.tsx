@@ -1,4 +1,4 @@
-import { CircleHelp, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
@@ -17,13 +17,10 @@ import { HOME_PATH, LOGIN_PATH } from '@/features/auth/redirect';
 import { useAuthStore } from '@/stores/auth';
 
 import { Logo } from './Logo';
-import { ShortcutsDialog } from './ShortcutsDialog';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
-/** Top bar of the authenticated app: logo, keyboard help, theme and the account menu. */
+/** Top bar of the authenticated app: logo, theme and the account menu. */
 export function AppHeader() {
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
-
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-surface px-4">
       <nav aria-label="Main">
@@ -36,18 +33,9 @@ export function AppHeader() {
         </Link>
       </nav>
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Keyboard shortcuts"
-          onClick={() => setIsHelpOpen(true)}
-        >
-          <CircleHelp className="size-5" strokeWidth={2} />
-        </Button>
         <ThemeSwitcher />
         <UserMenu />
       </div>
-      <ShortcutsDialog open={isHelpOpen} onOpenChange={setIsHelpOpen} />
     </header>
   );
 }
