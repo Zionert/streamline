@@ -26,6 +26,8 @@ model User {
   ownedBoards   Board[]          @relation("BoardOwner")
   assignedCards Card[]           @relation("CardAssignee")
   cardMoves     CardTransition[] @relation("CardTransitionMovedBy")
+  comments      Comment[]        @relation("CommentAuthor")
+  activities    Activity[]       @relation("ActivityActor")
 }
 
 /// Opaque refresh tokens; only the SHA-256 hash of the token is stored.
@@ -69,6 +71,9 @@ model Board {
   columns        Column[]
   cards          Card[]
   transitions    CardTransition[]
+  labels         Label[]
+  comments       Comment[]
+  activities     Activity[]
 
   @@unique([ownerId, key])
 }
@@ -157,6 +162,8 @@ model Card {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   transitions CardTransition[]
+  labels      CardLabel[]
+  comments    Comment[]
 
   @@unique([boardId, number])
   @@unique([columnId, rank])
@@ -187,4 +194,111 @@ model CardTransition {
   /// Used by ON DELETE SET NULL when a column is deleted.
   @@index([fromColumnId])
   @@index([toColumnId])
+}
+
+/// Fixed palette of label colors; clients map each name to theme-aware colors.
+enum LabelColor {
+  GREEN
+  YELLOW
+  ORANGE
+  RED
+  PURPLE
+  BLUE
+  SKY
+  LIME
+  PINK
+  GRAY
+}
+
+// Label defined per board and attached to cards through CardLabel. Names are unique per board
+// regardless of case: "Label_boardId_lower_name_key" is a unique index on ("boardId", lower("name"))
+// hand-written in the migration SQL (Prisma cannot express expression indexes); it also serves
+// the lookups by board.
+model Label {
+  id        String      @id @default(cuid())
+  boardId   String
+  board     Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// Trimmed, 1-30 characters.
+  name      String
+  color     LabelColor
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  cards     CardLabel[]
+}
+
+/// A label attached to a card; removed together with either of them.
+model CardLabel {
+  cardId  String
+  card    Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  labelId String
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([cardId, labelId])
+  /// Used when a label is deleted (cascade) and to find the cards carrying a label.
+  @@index([labelId])
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  cardId    String
+  card      Card      @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  /// Denormalized from the card for board-wide scoping.
+  boardId   String
+  board     Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// Null when the author's account was deleted later.
+  authorId  String?
+  author    User?     @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  /// Trimmed, 1-5000 characters.
+  body      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Set when the author changes the body; null for a comment never edited.
+  editedAt  DateTime?
+
+  /// Chronological listing of a card's comments (keyset pagination on createdAt, id).
+  @@index([cardId, createdAt, id])
+  /// Used by ON DELETE CASCADE when a board is deleted.
+  @@index([boardId])
+}
+
+/// Kind of a board activity entry; the shape of `Activity.payload` depends on it.
+enum ActivityType {
+  CARD_CREATED
+  CARD_UPDATED
+  CARD_MOVED
+  CARD_DELETED
+  CARD_LABEL_ADDED
+  CARD_LABEL_REMOVED
+  COMMENT_ADDED
+  COLUMN_CREATED
+  COLUMN_RENAMED
+  COLUMN_MOVED
+  COLUMN_SETTINGS_CHANGED
+  COLUMN_DELETED
+  MEMBER_ADDED
+  MEMBER_ROLE_CHANGED
+  MEMBER_REMOVED
+  MEMBER_LEFT
+}
+
+/// Board activity log ("who did what, when"), written in the same transaction as the change it
+/// describes. The payload is a self-describing snapshot (card key and title, column and member
+/// names, ...), so entries stay readable after the referenced rows are changed or deleted.
+model Activity {
+  id        String       @id @default(cuid())
+  boardId   String
+  board     Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// Null when the user's account was deleted later.
+  actorId   String?
+  actor     User?        @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type      ActivityType
+  /// The card the entry is about; a plain column without a foreign key, so the history of a card
+  /// survives its deletion.
+  cardId    String?
+  payload   Json
+  createdAt DateTime     @default(now())
+
+  /// Board feed and card feed, newest first (keyset pagination on createdAt, id).
+  @@index([boardId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([cardId, createdAt(sort: Desc), id(sort: Desc)])
 }

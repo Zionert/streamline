@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   BOARD_ACTIONS,
   BOARD_PERMISSIONS,
+  canDeleteComment,
+  canEditComment,
   canLeaveBoard,
   canManageMember,
   hasBoardPermission,
@@ -68,5 +70,41 @@ describe('canLeaveBoard', () => {
     ['VIEWER', true],
   ] as const)('%s: %s', (role, allowed) => {
     expect(canLeaveBoard(role)).toBe(allowed);
+  });
+});
+
+describe('comment permissions', () => {
+  const author = 'u1';
+  const writers: readonly BoardRole[] = ['OWNER', 'ADMIN', 'MEMBER'];
+  const managers: readonly BoardRole[] = ['OWNER', 'ADMIN'];
+  const cases = BOARD_ROLES.flatMap((role) =>
+    [true, false].map((isAuthor) => ({ role, isAuthor })),
+  );
+
+  it.each(cases)('$role (author: $isAuthor) editing', ({ role, isAuthor }) => {
+    const actor = { userId: isAuthor ? author : 'u2', role };
+    expect(canEditComment(actor, { authorId: author })).toBe(isAuthor && writers.includes(role));
+  });
+
+  it.each(cases)('$role (author: $isAuthor) deleting', ({ role, isAuthor }) => {
+    const actor = { userId: isAuthor ? author : 'u2', role };
+    expect(canDeleteComment(actor, { authorId: author })).toBe(
+      (isAuthor && writers.includes(role)) || managers.includes(role),
+    );
+  });
+
+  it('lets nobody edit a comment whose author no longer exists, only managers delete it', () => {
+    for (const role of BOARD_ROLES) {
+      expect(canEditComment({ userId: 'u1', role }, { authorId: null })).toBe(false);
+      expect(canDeleteComment({ userId: 'u1', role }, { authorId: null })).toBe(
+        managers.includes(role),
+      );
+    }
+  });
+
+  it('does not let a former member who became a VIEWER edit or delete their comment', () => {
+    const actor = { userId: author, role: 'VIEWER' as const };
+    expect(canEditComment(actor, { authorId: author })).toBe(false);
+    expect(canDeleteComment(actor, { authorId: author })).toBe(false);
   });
 });

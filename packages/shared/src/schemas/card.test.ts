@@ -16,6 +16,7 @@ import {
   formatCardKey,
   moveCardSchema,
   updateCardSchema,
+  wipLimitExceededDetailsSchema,
 } from './card.js';
 
 const validCard = {
@@ -30,6 +31,7 @@ const validCard = {
   priority: 'MEDIUM',
   assigneeId: null,
   dueDate: '2027-01-31',
+  labelIds: ['label-1', 'label-2'],
   createdAt: '2026-11-11T10:00:00.000Z',
   updatedAt: '2026-11-11T10:00:00.000Z',
 };
@@ -198,8 +200,24 @@ describe('response schemas', () => {
     { rank: 'U0' },
     { dueDate: '2027-01-31T00:00:00.000Z' },
     { priority: 'NONE' },
+    { labelIds: undefined },
+    { labelIds: [1] },
   ])('rejects a card with %j', (patch) => {
     expect(cardSchema.safeParse({ ...validCard, ...patch }).success).toBe(false);
+  });
+});
+
+describe('wipLimitExceededDetailsSchema', () => {
+  it('accepts the details of a full column', () => {
+    const details = { columnId: 'col-1', columnName: 'In Progress', wipLimit: 3 };
+    expect(wipLimitExceededDetailsSchema.parse(details)).toEqual(details);
+  });
+
+  it.each([
+    { columnId: 'col-1', columnName: 'X' },
+    { columnId: 'col-1', columnName: 'X', wipLimit: 0 },
+  ])('rejects %j', (details) => {
+    expect(wipLimitExceededDetailsSchema.safeParse(details).success).toBe(false);
   });
 });
 

@@ -3,9 +3,10 @@ import {
   type Board,
   type BoardMember,
   type Card,
+  type Label,
   type PresenceUser,
 } from '@streamline/shared';
-import { ArrowUpDown, PanelLeft, Search } from 'lucide-react';
+import { ArrowUpDown, History, PanelLeft, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -15,7 +16,9 @@ import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { BoardActivitySheet } from '@/features/activity/BoardActivitySheet';
 import { isFilterActive, type CardFilter } from '@/features/cards/cardFilter';
+import { LabelFilter } from '@/features/labels/LabelFilter';
 import { BoardPresence } from '@/features/realtime/BoardPresence';
 import { useBoardRealtime } from '@/features/realtime/useBoardRealtime';
 import { MOBILE_SCREEN_QUERY, useMediaQuery } from '@/hooks/useMediaQuery';
@@ -113,22 +116,34 @@ function BoardView({ board }: { board: Board }) {
   const isMovingCard = useBoardStore((state) => state.isMovingCard);
   const notice = useBoardStore((state) => state.notice);
   const presence = useBoardStore((state) => state.presence);
+  const labels = useBoardStore((state) => state.labels);
   const moveColumn = useBoardStore((state) => state.moveColumn);
   const moveCard = useBoardStore((state) => state.moveCard);
   const reloadCards = useBoardStore((state) => state.reloadCards);
   const dismissNotice = useBoardStore((state) => state.dismissNotice);
   const navigate = useNavigate();
   const [isMembersOpen, setIsMembersOpen] = useState(false);
+  const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [filterText, setFilterText] = useState('');
   const [activeMemberIds, setActiveMemberIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [selectedLabelIds, setSelectedLabelIds] = useState<ReadonlySet<string>>(() => new Set());
   const isMobile = useMediaQuery(MOBILE_SCREEN_QUERY);
   const sidebar = useSidebarState(isMobile);
   const canWrite = hasBoardPermission(board.role, 'column:write');
   const canEditSettings = hasBoardPermission(board.role, 'column:settings');
   const canWriteCards = hasBoardPermission(board.role, 'card:write');
+  const labelsById = useMemo(
+    () => new Map<string, Label>(labels.map((label) => [label.id, label])),
+    [labels],
+  );
+  // A deleted label no longer filters (its id may still be selected).
+  const activeLabelIds = useMemo<ReadonlySet<string>>(
+    () => new Set([...selectedLabelIds].filter((labelId) => labelsById.has(labelId))),
+    [selectedLabelIds, labelsById],
+  );
   const filter = useMemo<CardFilter>(
-    () => ({ text: filterText, assigneeIds: activeMemberIds }),
-    [filterText, activeMemberIds],
+    () => ({ text: filterText, assigneeIds: activeMemberIds, labelIds: activeLabelIds }),
+    [filterText, activeMemberIds, activeLabelIds],
   );
   const filtering = isFilterActive(filter);
   const membersById = useMemo(
@@ -137,13 +152,17 @@ function BoardView({ board }: { board: Board }) {
   );
 
   const toggleMember = (userId: string) => {
-    setActiveMemberIds((previous) => {
-      const next = new Set(previous);
-      if (!next.delete(userId)) {
-        next.add(userId);
-      }
-      return next;
-    });
+    setActiveMemberIds((previous) => toggleInSet(previous, userId));
+  };
+
+  const toggleLabel = (labelId: string) => {
+    setSelectedLabelIds((previous) => toggleInSet(previous, labelId));
+  };
+
+  const clearFilters = () => {
+    setFilterText('');
+    setActiveMemberIds(new Set());
+    setSelectedLabelIds(new Set());
   };
 
   const openCard = (card: Card) => {
@@ -194,8 +213,14 @@ function BoardView({ board }: { board: Board }) {
           onFilterTextChange={setFilterText}
           activeMemberIds={activeMemberIds}
           onToggleMember={toggleMember}
+          labels={labels}
+          selectedLabelIds={activeLabelIds}
+          onToggleLabel={toggleLabel}
+          isFiltering={filtering}
+          onClearFilters={clearFilters}
           showDragHint={filtering && canWriteCards}
           presence={presence}
+          onOpenActivity={() => setIsActivityOpen(true)}
         />
         {cardsStatus === 'error' && (
           <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
@@ -221,6 +246,7 @@ function BoardView({ board }: { board: Board }) {
             // A filtered view hides cards, so the neighbours of a drop would be wrong.
             isCardDragDisabled={isMovingCard || filtering}
             membersById={membersById}
+            labelsById={labelsById}
             onMoveCard={(cardId, toColumnId, toIndex) => void moveCard(cardId, toColumnId, toIndex)}
             onOpenCard={openCard}
           />
@@ -234,6 +260,11 @@ function BoardView({ board }: { board: Board }) {
           open={isMembersOpen}
           onOpenChange={setIsMembersOpen}
         />
+        <BoardActivitySheet
+          boardId={board.id}
+          open={isActivityOpen}
+          onOpenChange={setIsActivityOpen}
+        />
       </main>
     </div>
   );
@@ -246,21 +277,44 @@ interface BoardToolbarProps {
   /** Members whose cards are shown (all cards when empty). */
   activeMemberIds: ReadonlySet<string>;
   onToggleMember: (userId: string) => void;
+  labels: readonly Label[];
+  /** Labels whose cards are shown (all cards when empty). */
+  selectedLabelIds: ReadonlySet<string>;
+  onToggleLabel: (labelId: string) => void;
+  /** Any filter is active (offers clearing all of them). */
+  isFiltering: boolean;
+  onClearFilters: () => void;
   /** Explains that dragging cards is paused while a filter is active. */
   showDragHint: boolean;
   /** Users currently viewing the board. */
   presence: readonly PresenceUser[];
+  onOpenActivity: () => void;
 }
 
-/** View-only card filters: text (title or key) and assignees. */
+/** Copy of the set with `value` added, or removed when it was there. */
+function toggleInSet(set: ReadonlySet<string>, value: string): ReadonlySet<string> {
+  const next = new Set(set);
+  if (!next.delete(value)) {
+    next.add(value);
+  }
+  return next;
+}
+
+/** View-only card filters (text, assignees, labels) and the board's activity. */
 function BoardToolbar({
   members,
   filterText,
   onFilterTextChange,
   activeMemberIds,
   onToggleMember,
+  labels,
+  selectedLabelIds,
+  onToggleLabel,
+  isFiltering,
+  onClearFilters,
   showDragHint,
   presence,
+  onOpenActivity,
 }: BoardToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -288,13 +342,24 @@ function BoardToolbar({
           onToggle={(person) => onToggleMember(person.userId)}
         />
       )}
+      <LabelFilter labels={labels} selectedIds={selectedLabelIds} onToggle={onToggleLabel} />
       <Button variant="subtle" size="sm" disabled title="Sorting is not available yet">
         <ArrowUpDown strokeWidth={2} />
         Sort
       </Button>
+      {isFiltering && (
+        <Button variant="ghost" size="sm" className="text-subtle" onClick={onClearFilters}>
+          <X strokeWidth={2} />
+          Clear filters
+        </Button>
+      )}
       {showDragHint && <p className="text-xs text-subtle">Clear the filter to drag cards.</p>}
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-3">
         <BoardPresence users={presence} />
+        <Button variant="ghost" size="sm" className="text-subtle" onClick={onOpenActivity}>
+          <History strokeWidth={2} />
+          Activity
+        </Button>
       </div>
     </div>
   );

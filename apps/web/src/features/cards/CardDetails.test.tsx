@@ -46,6 +46,13 @@ async function renderBoard(role: BoardRole = 'MEMBER', path = BOARD, cards: Card
     data: { members: [memberWith({ role }), ola] },
   });
   mock.current.on('GET', CARDS, { status: 200, data: cardListFor(defaultColumns(), cards) });
+  mock.current.on('GET', `${BOARD}/labels`, { status: 200, data: { labels: [] } });
+  for (const card of cards) {
+    mock.current.on('GET', `${CARDS}/${card.id}/comments`, {
+      status: 200,
+      data: { comments: [], nextCursor: null },
+    });
+  }
   const result = renderApp(path);
   // An open modal hides the board from the accessibility tree.
   await screen.findByRole('heading', { level: 1, name: 'Board', hidden: true });
@@ -363,5 +370,44 @@ describe('card details', () => {
     expect(within(dialog).getByText('Due date').closest('label')).toBeNull();
     expect(within(dialog).queryByRole('button', { name: 'Delete' })).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Copy link' })).toBeVisible();
+  });
+
+  it('shows the history of the card in the Activity tab', async () => {
+    mock.current.on('GET', `${CARDS}/t1/activity`, {
+      status: 200,
+      data: {
+        activities: [
+          {
+            id: 'a1',
+            boardId: 'board-1',
+            cardId: 't1',
+            actor: { id: 'user-ola', name: 'Ola Nowak' },
+            createdAt: '2026-11-11T10:00:00.000Z',
+            type: 'CARD_MOVED',
+            payload: {
+              card: { key: 'SB-1', title: 'Fix login' },
+              from: { id: 'col-backlog', name: 'Backlog' },
+              to: { id: 'col-todo', name: 'To Do' },
+            },
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    await renderBoard('MEMBER', `${BOARD}/cards/SB-1`);
+    const dialog = await openDialog();
+
+    // Comments are the default tab.
+    expect(within(dialog).getByRole('tab', { name: 'Comments' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    const activityTab = within(dialog).getByRole('tab', { name: 'Activity' });
+    fireEvent.mouseDown(activityTab);
+    fireEvent.click(activityTab);
+
+    const feed = await within(dialog).findByRole('list', { name: 'Card activity' });
+    expect(feed).toHaveTextContent('Ola Nowak moved SB-1 Fix login from Backlog to To Do');
+    expect(within(feed).queryByRole('link')).toBeNull();
   });
 });

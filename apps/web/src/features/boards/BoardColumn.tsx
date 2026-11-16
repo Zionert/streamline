@@ -1,5 +1,5 @@
 import { Draggable, Droppable, type DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
-import type { Card, Column } from '@streamline/shared';
+import type { Card, Column, Label } from '@streamline/shared';
 import {
   CircleSlash,
   Ellipsis,
@@ -26,6 +26,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CardComposer } from '@/features/cards/CardComposer';
 import { CardTile } from '@/features/cards/CardTile';
 import { CARD_DRAG_TYPE, cardsDroppableId } from '@/features/cards/cardDrag';
+import { wipLimitMessage } from '@/features/cards/cardErrorMessage';
+import { labelsOfCard } from '@/features/labels/labelOrder';
 import { cn } from '@/lib/utils';
 import { useBoardStore } from '@/stores/board';
 
@@ -36,6 +38,10 @@ import { CategoryDot, ColumnCounter } from './badges';
 import { getBoardErrorMessage } from './boardErrorMessage';
 
 const NO_MEMBERS: ReadonlyMap<string, AvatarStackPerson> = new Map();
+const NO_LABELS: ReadonlyMap<string, Label> = new Map();
+
+/** Toast id of the message about a full column with a strict WIP limit. */
+const WIP_TOAST_ID = 'wip-limit-reached';
 
 export interface BoardColumnProps {
   column: Column;
@@ -55,6 +61,8 @@ export interface BoardColumnProps {
   isCardDragDisabled?: boolean;
   /** Board members by user id, for the assignee avatars. */
   membersById?: ReadonlyMap<string, AvatarStackPerson>;
+  /** Board labels by id, for the label pills of the cards. */
+  labelsById?: ReadonlyMap<string, Label>;
   onOpenCard?: (card: Card) => void;
   /** Whether a card is hidden by the active toolbar filter (for the quick create hint). */
   isCardHidden?: (card: Card) => boolean;
@@ -74,6 +82,7 @@ export function BoardColumn({
   canWriteCards = false,
   isCardDragDisabled = true,
   membersById = NO_MEMBERS,
+  labelsById = NO_LABELS,
   onOpenCard,
   isCardHidden,
   dragHandleProps,
@@ -90,6 +99,8 @@ export function BoardColumn({
   // Counters and the WIP highlight always use the real number of cards, not the filtered one.
   const cardCount = cards.length;
   const wipExceeded = column.wipLimit !== null && cardCount > column.wipLimit;
+  // A strict limit refuses new cards once the column is full.
+  const strictFull = column.wipStrict && column.wipLimit !== null && cardCount >= column.wipLimit;
   const canDragCards = canWriteCards && !isCardDragDisabled;
 
   const closeComposer = () => {
@@ -148,9 +159,14 @@ export function BoardColumn({
             </h2>
             <ColumnCounter count={cardCount} limit={column.wipLimit} />
             {column.wipLimit !== null && column.wipStrict && (
-              <span title="Strict WIP limit" className="inline-flex shrink-0 text-subtle">
+              <span
+                role="img"
+                aria-label="Strict WIP limit"
+                title="Strict WIP limit"
+                data-testid="wip-strict"
+                className="inline-flex shrink-0 text-subtle"
+              >
                 <Lock aria-hidden="true" className="size-3" strokeWidth={2} />
-                <span className="sr-only">strict</span>
               </span>
             )}
           </div>
@@ -164,7 +180,13 @@ export function BoardColumn({
             aria-expanded={isComposing}
             title="Add a card"
             className="text-subtle"
-            onClick={() => setIsComposing((open) => !open)}
+            onClick={() => {
+              if (!isComposing && strictFull && column.wipLimit !== null) {
+                toast.error(wipLimitMessage(column.title, column.wipLimit), { id: WIP_TOAST_ID });
+                return;
+              }
+              setIsComposing((open) => !open);
+            }}
           >
             <Plus strokeWidth={2} />
           </Button>
@@ -212,6 +234,7 @@ export function BoardColumn({
                       assignee={
                         card.assigneeId === null ? null : (membersById.get(card.assigneeId) ?? null)
                       }
+                      labels={labelsOfCard(card, labelsById)}
                       onOpen={() => onOpenCard?.(card)}
                       isDraggable={canDragCards}
                       isDragging={draggableSnapshot.isDragging}

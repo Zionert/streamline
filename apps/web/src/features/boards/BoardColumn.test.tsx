@@ -1,8 +1,9 @@
 import { DragDropContext, type DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
 import type { Card, Column } from '@streamline/shared';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { toast } from 'sonner';
+import { describe, expect, it, vi } from 'vitest';
 
 import { cardWith, columnWith } from '@/test/fixtures';
 
@@ -139,8 +140,66 @@ describe('BoardColumn', () => {
       0,
     );
 
-    expect(screen.getByTitle('Strict WIP limit')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Strict WIP limit' })).toHaveAttribute(
+      'title',
+      'Strict WIP limit',
+    );
     expect(screen.getByTitle('Category: In progress')).toHaveTextContent('Category: In progress');
+  });
+
+  it('refuses quick creation in a full column with a strict limit, with the reason', () => {
+    const error = vi.spyOn(toast, 'error');
+    const column = columnWith({
+      id: 'col-a',
+      title: 'Review',
+      rank: 'a',
+      wipLimit: 2,
+      wipStrict: true,
+    });
+    const { rerender } = renderColumn(column, 2, { canWriteCards: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a card to Review' }));
+
+    expect(error).toHaveBeenCalledWith(
+      'Column "Review" is at its WIP limit (2). Move a card out first.',
+      expect.anything(),
+    );
+    expect(screen.queryByRole('form', { name: 'Add a card to Review' })).toBeNull();
+
+    // With room left (or a non-strict limit) the composer opens.
+    rerender(
+      withDragContext(
+        <BoardColumn
+          column={{ ...column, wipLimit: 3 }}
+          cards={cardsIn('col-a', 2)}
+          canWrite={false}
+          canEditSettings={false}
+          canWriteCards
+        />,
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add a card to Review' }));
+    expect(screen.getByRole('form', { name: 'Add a card to Review' })).toBeInTheDocument();
+  });
+
+  it('highlights the column as soon as a lowered limit is exceeded', () => {
+    const column = columnWith({ id: 'col-a', title: 'Review', rank: 'a', wipLimit: 3 });
+    const { rerender } = renderColumn(column, 2);
+    expect(screen.getByRole('region', { name: 'Review' })).not.toHaveAttribute('data-wip-exceeded');
+
+    rerender(
+      withDragContext(
+        <BoardColumn
+          column={{ ...column, wipLimit: 1 }}
+          cards={cardsIn('col-a', 2)}
+          canWrite={false}
+          canEditSettings={false}
+        />,
+      ),
+    );
+
+    expect(screen.getByRole('region', { name: 'Review' })).toHaveAttribute('data-wip-exceeded');
+    expect(screen.getByLabelText('WIP 2 of 1, limit exceeded')).toHaveClass('text-destructive');
   });
 
   it('shows the empty state and no actions without permissions', () => {

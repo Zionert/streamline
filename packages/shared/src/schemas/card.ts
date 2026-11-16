@@ -132,6 +132,8 @@ export const cardSchema = z.object({
   priority: cardPrioritySchema,
   assigneeId: z.string().nullable(),
   dueDate: cardDueDateSchema.nullable(),
+  /** Ids of the board labels attached to the card, in the order of the board's label list. */
+  labelIds: z.array(z.string()),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -173,7 +175,10 @@ export const CARD_ERROR_CODES = {
   INVALID_POSITION: COLUMN_ERROR_CODES.INVALID_POSITION,
   /** 409: concurrent changes kept producing the same rank; the request may be retried. */
   RANK_CONFLICT: COLUMN_ERROR_CODES.RANK_CONFLICT,
-  /** 409: the target column has a strict WIP limit and is full. */
+  /**
+   * 409: the target column has a strict WIP limit and is full; `details` match
+   * {@link wipLimitExceededDetailsSchema}.
+   */
   WIP_LIMIT_EXCEEDED: 'WIP_LIMIT_EXCEEDED',
   /** 400: the assignee is not a member of the board. */
   ASSIGNEE_NOT_MEMBER: 'ASSIGNEE_NOT_MEMBER',
@@ -182,3 +187,12 @@ export const CARD_ERROR_CODES = {
 } as const;
 
 export type CardErrorCode = (typeof CARD_ERROR_CODES)[keyof typeof CARD_ERROR_CODES];
+
+/** `error.details` of a 409 `WIP_LIMIT_EXCEEDED`: the full column and its limit. */
+export const wipLimitExceededDetailsSchema = z.object({
+  columnId: z.string(),
+  columnName: z.string(),
+  wipLimit: z.int().min(1),
+});
+
+export type WipLimitExceededDetails = z.infer<typeof wipLimitExceededDetailsSchema>;

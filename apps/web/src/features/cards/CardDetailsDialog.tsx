@@ -4,7 +4,7 @@ import {
   type Card,
   type UpdateCardInput,
 } from '@streamline/shared';
-import { Link2, SquareCheck, Trash2, X } from 'lucide-react';
+import { History, Link2, MessageSquare, SquareCheck, Trash2, X } from 'lucide-react';
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
@@ -13,13 +13,19 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { CardActivityFeed } from '@/features/activity/CardActivityFeed';
 import { ConfirmDialog } from '@/features/boards/ConfirmDialog';
 import { cardPath } from '@/features/boards/paths';
+import { CommentsSection } from '@/features/comments/CommentsSection';
+import { CardLabelsField } from '@/features/labels/CardLabelsField';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth';
 import { useBoardStore } from '@/stores/board';
 
 import { getCardChanges, type CardDraft } from './cardChanges';
+import { DIRTY_FIELD_ATTRIBUTE } from './dirtyField';
 import { getCardErrorMessage } from './cardErrorMessage';
 import { cardsOf } from './cardOrder';
 import { formatCalendarDate, formatDateTime } from './format';
@@ -29,12 +35,6 @@ import { PriorityFlag } from './priority';
 /** Toast ids: a newer message of the same kind replaces the previous one. */
 const SAVE_ERROR_TOAST_ID = 'card-save-error';
 const COPY_LINK_TOAST_ID = 'card-copy-link';
-
-/**
- * Marks a text field with unsaved changes: Escape there discards the changes instead of closing
- * the dialog (a second Escape closes it).
- */
-const DIRTY_FIELD_ATTRIBUTE = 'data-dirty-field';
 
 interface CardDetailsDialogProps {
   card: Card;
@@ -54,6 +54,7 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
   const updateCard = useBoardStore((state) => state.updateCard);
   const moveCard = useBoardStore((state) => state.moveCard);
   const deleteCard = useBoardStore((state) => state.deleteCard);
+  const userId = useAuthStore((state) => state.user?.id ?? null);
   const [isDeleting, setIsDeleting] = useState(false);
   const deleteButton = useRef<HTMLButtonElement>(null);
   const canWrite = board !== null && hasBoardPermission(board.role, 'card:write');
@@ -63,6 +64,7 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
     assignee: useId(),
     priority: useId(),
     dueDate: useId(),
+    labels: useId(),
   };
 
   /** Saves the changed fields of the draft; failures are toasts (the store restores the card). */
@@ -156,6 +158,34 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
               readOnly={!canWrite}
               onSave={(description) => save({ description })}
             />
+            {/* Comments first (the default tab); the card's history is one click away. */}
+            <Tabs defaultValue="comments" className="pt-2">
+              <TabsList aria-label="Card discussion and history">
+                <TabsTrigger value="comments">
+                  <MessageSquare aria-hidden="true" className="size-4" strokeWidth={2} />
+                  Comments
+                </TabsTrigger>
+                <TabsTrigger value="activity">
+                  <History aria-hidden="true" className="size-4" strokeWidth={2} />
+                  Activity
+                </TabsTrigger>
+              </TabsList>
+              {/* Kept mounted while hidden, so a comment being written survives a look at the
+                  history. */}
+              <TabsContent value="comments" forceMount className="data-[state=inactive]:hidden">
+                {board && (
+                  <CommentsSection
+                    boardId={boardId}
+                    cardId={card.id}
+                    userId={userId}
+                    role={board.role}
+                  />
+                )}
+              </TabsContent>
+              <TabsContent value="activity">
+                <CardActivityFeed boardId={boardId} cardId={card.id} />
+              </TabsContent>
+            </Tabs>
           </div>
           <div className="flex min-w-0 flex-col gap-4 text-sm">
             <dl className="flex flex-col gap-4">
@@ -208,6 +238,9 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
                   </NativeSelect>
                 </div>
               </Field>
+              <Field label="Labels" labelId={ids.labels}>
+                <CardLabelsField card={card} canWrite={canWrite} labelledBy={ids.labels} />
+              </Field>
               {canWrite ? (
                 <Field label="Due date" htmlFor={ids.dueDate}>
                   <DueDateField
@@ -255,15 +288,18 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
 function Field({
   label,
   htmlFor,
+  labelId,
   children,
 }: {
   label: string;
   htmlFor?: string;
+  /** Id of the term, for values labelled by it (`aria-labelledby`). */
+  labelId?: string;
   children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <dt className="text-xs font-semibold text-subtle">
+      <dt id={labelId} className="text-xs font-semibold text-subtle">
         {htmlFor ? (
           <Label htmlFor={htmlFor} className="text-xs font-semibold text-subtle">
             {label}

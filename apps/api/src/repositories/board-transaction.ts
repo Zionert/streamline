@@ -49,6 +49,20 @@ export class BoardBusyError extends Error {
   }
 }
 
+/**
+ * Failures meaning the board is too contended right now, not that the request is wrong: a lock
+ * wait over `lock_timeout`, a deadlock PostgreSQL broke by aborting this transaction, or Prisma
+ * not starting / finishing the transaction in time. Nothing was written, so a retry is safe.
+ */
+export function isBoardBusyFailure(err: unknown): boolean {
+  const code = postgresErrorCode(err);
+  return (
+    code === PG_ERROR.LOCK_NOT_AVAILABLE ||
+    code === PG_ERROR.DEADLOCK_DETECTED ||
+    isPrismaError(err, PRISMA_ERROR.TRANSACTION_API_ERROR)
+  );
+}
+
 /** Time limits of board transactions, in milliseconds. */
 export interface BoardTransactionOptions {
   /** Maximum wait for each lock (PostgreSQL `lock_timeout`, set per transaction). */
@@ -118,7 +132,7 @@ export type BoardTransactionRunner = <T>(
  * Creates a function running callbacks in a transaction (READ COMMITTED unless requested
  * otherwise) with the given time limits. Errors roll the transaction back; a unique violation of
  * `rankConstraint` (if given) surfaces as {@link RankCollisionError}, and a lock wait or
- * transaction exceeding the limits as {@link BoardBusyError}.
+ * transaction exceeding the limits, or a deadlock, as {@link BoardBusyError}.
  */
 export function createBoardTransactionRunner(
   db: DbClient,
@@ -149,10 +163,7 @@ export function createBoardTransactionRunner(
       if (rankConstraint && isUniqueViolationOf(err, rankConstraint)) {
         throw new RankCollisionError();
       }
-      if (
-        postgresErrorCode(err) === PG_ERROR.LOCK_NOT_AVAILABLE ||
-        isPrismaError(err, PRISMA_ERROR.TRANSACTION_API_ERROR)
-      ) {
+      if (isBoardBusyFailure(err)) {
         throw new BoardBusyError({ cause: err });
       }
       throw err;

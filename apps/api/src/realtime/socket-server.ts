@@ -3,6 +3,7 @@ import type { Server as HttpServer } from 'node:http';
 import {
   boardRoom,
   boardRoomRequestSchema,
+  isEchoSuppressed,
   userRoom,
   WS_ERROR_CODES,
   WS_EVENTS,
@@ -121,7 +122,8 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
   const events: BoardEvents = {
     publish(name, payload, origin) {
       const room = io.to(boardRoom(payload.boardId));
-      const skip = originSocketId(origin, payload.actorId);
+      // Some events (e.g. `activity:created`) are news to the originating client as well.
+      const skip = isEchoSuppressed(name) ? originSocketId(origin, payload.actorId) : null;
       // Socket.io's typings cannot relate a generic event name to its payload; the signature of
       // `publish` already guarantees that they match.
       const target = (skip === null ? room : room.except(skip)) as unknown as {

@@ -1,12 +1,15 @@
 import { Router, type RequestHandler } from 'express';
 
+import { createActivityController } from '../controllers/activity.controller.js';
 import { createBoardController } from '../controllers/board.controller.js';
 import type { RequireBoardPermission } from '../middleware/require-board-permission.js';
 import type { BoardService } from '../services/board.service.js';
 import { createCardRouter, type CardRouterDependencies } from './card.routes.js';
 import { createColumnRouter, type ColumnRouterDependencies } from './column.routes.js';
+import { createLabelRouter, type LabelRouterDependencies } from './label.routes.js';
 
-export interface BoardRouterDependencies extends ColumnRouterDependencies, CardRouterDependencies {
+export interface BoardRouterDependencies
+  extends ColumnRouterDependencies, CardRouterDependencies, LabelRouterDependencies {
   boardService: BoardService;
   requireAuth: RequestHandler;
   requireBoardPermission: RequireBoardPermission;
@@ -16,10 +19,14 @@ export function createBoardRouter({
   boardService,
   columnService,
   cardService,
+  labelService,
+  commentService,
+  activityService,
   requireAuth,
   requireBoardPermission: can,
 }: BoardRouterDependencies): Router {
   const controller = createBoardController(boardService);
+  const activity = createActivityController(activityService);
 
   const router = Router();
   router.use(requireAuth);
@@ -42,7 +49,13 @@ export function createBoardRouter({
     '/:boardId/columns',
     createColumnRouter({ columnService, requireBoardPermission: can }),
   );
-  router.use('/:boardId/cards', createCardRouter({ cardService, requireBoardPermission: can }));
+  router.use(
+    '/:boardId/cards',
+    createCardRouter({ cardService, activityService, commentService, requireBoardPermission: can }),
+  );
+  router.use('/:boardId/labels', createLabelRouter({ labelService, requireBoardPermission: can }));
+  // Newest first; the feed of one card is under /cards/:cardId/activity.
+  router.get('/:boardId/activity', can('board:view'), activity.listForBoard);
 
   return router;
 }
