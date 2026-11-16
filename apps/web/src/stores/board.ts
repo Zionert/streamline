@@ -1,5 +1,7 @@
 import {
   BOARD_ROLES,
+  CARD_ERROR_CODES,
+  LABEL_ERROR_CODES,
   type AddBoardMemberInput,
   type AssignableBoardRole,
   type Board,
@@ -7,9 +9,12 @@ import {
   type BoardMember,
   type Card,
   type Column,
+  type CreateLabelInput,
+  type Label,
   type PresenceUser,
   type UpdateCardInput,
   type UpdateColumnSettingsInput,
+  type UpdateLabelInput,
 } from '@streamline/shared';
 import { create } from 'zustand';
 
@@ -32,6 +37,7 @@ import {
   getCardErrorMessage,
   isColumnGoneError,
   needsCardsReload,
+  wipLimitMessage,
 } from '@/features/cards/cardErrorMessage';
 import {
   cardsOf,
@@ -46,6 +52,8 @@ import {
   type CardsByColumn,
 } from '@/features/cards/cardOrder';
 import * as cardsApi from '@/features/cards/cardsApi';
+import { removeLabelFromCards, toggleLabelId, upsertLabel } from '@/features/labels/labelOrder';
+import * as labelsApi from '@/features/labels/labelsApi';
 import {
   applyCardRanks,
   applyRanks,
@@ -57,13 +65,19 @@ import {
   upsertMember,
   withBoardKey,
 } from '@/features/realtime/boardEventReducers';
+import { getApiErrorInfo } from '@/lib/api-error';
+import { receiveActivity } from '@/stores/activity';
 import { useAuthStore } from '@/stores/auth';
+import { reloadFeeds, resetFeedsExcept } from '@/stores/cardFeeds';
+import { applyCommentEvent } from '@/stores/comments';
 
 export type BoardsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export type CurrentBoardStatus = 'idle' | 'loading' | 'ready' | 'not-found' | 'error';
 
 export type CardsStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+export type LabelsStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 /** Outcome of `resyncBoard`: `access-lost` when the board is gone or the user is no member. */
 export type ResyncResult = 'ok' | 'access-lost' | 'error';
@@ -96,6 +110,9 @@ export interface BoardState {
   presence: PresenceUser[];
   /** Ids of cards of the opened board deleted by someone else (e.g. to explain a closed modal). */
   deletedCardIds: ReadonlySet<string>;
+  /** Labels of the opened board in creation order (the order of `labelIds` on cards). */
+  labels: Label[];
+  labelsStatus: LabelsStatus;
 
   loadBoards: () => Promise<void>;
   createBoard: (name: string) => Promise<Board>;
@@ -130,6 +147,18 @@ export interface BoardState {
   deleteCard: (cardId: string) => Promise<void>;
   /** Shows a card loaded on its own (e.g. opened by its address) if it is not shown yet. */
   rememberCard: (card: Card) => void;
+
+  /** Reloads the labels of the opened board; never rejects (the labels keep their last state). */
+  reloadLabels: () => Promise<void>;
+  createLabel: (input: CreateLabelInput) => Promise<Label>;
+  updateLabel: (labelId: string, input: UpdateLabelInput) => Promise<Label>;
+  /** Deletes the label and removes it from every card of the board. */
+  deleteLabel: (labelId: string) => Promise<void>;
+  /**
+   * Attaches the label to the card (`attach`) or removes it, optimistically; on failure only this
+   * label goes back to its previous state on the card and the error is rethrown.
+   */
+  toggleCardLabel: (cardId: string, labelId: string, attach: boolean) => Promise<void>;
 
   addMember: (input: AddBoardMemberInput) => Promise<BoardMember>;
   updateMemberRole: (userId: string, role: AssignableBoardRole) => Promise<BoardMember>;
@@ -173,6 +202,8 @@ type BoardData = Pick<
   | 'notice'
   | 'presence'
   | 'deletedCardIds'
+  | 'labels'
+  | 'labelsStatus'
 >;
 
 const openedBoardInitialState: Omit<BoardData, 'boards' | 'boardsStatus' | 'boardsError'> = {
@@ -189,6 +220,8 @@ const openedBoardInitialState: Omit<BoardData, 'boards' | 'boardsStatus' | 'boar
   notice: null,
   presence: [],
   deletedCardIds: new Set<string>(),
+  labels: [],
+  labelsStatus: 'idle',
 };
 
 const initialState: BoardData = {
@@ -220,6 +253,9 @@ let pendingColumnsLoad: number | null = null;
  * earlier never overwrites the result of a later one.
  */
 let snapshotGeneration = 0;
+/** The same guards for the label list: only the latest read may apply its result. */
+let labelsGeneration = 0;
+let pendingLabelsLoad: number | null = null;
 
 const CARD_EDIT_FIELDS = ['title', 'description', 'priority', 'assigneeId', 'dueDate'] as const;
 type CardEditField = (typeof CARD_EDIT_FIELDS)[number];
@@ -235,12 +271,51 @@ const cardEditsInFlight = new Set<number>();
 
 const cardEditKey = (cardId: string, field: CardEditField) => `${cardId}:${field}`;
 
-/** Fields of the card with a local edit still in flight (their local value is the newest). */
-function fieldsEditedInFlight(cardId: string): CardEditField[] {
-  return CARD_EDIT_FIELDS.filter((field) => {
+/**
+ * Label toggles: per card, the number of toggles still in flight and the newest label ids known
+ * to be on the server (with the card's `updatedAt` of that version). While a toggle is in flight
+ * the local `labelIds` are the newest; once the last one settles the card shows the newest
+ * confirmed ids, so responses arriving out of order or several failures cannot leave the card
+ * showing ids the server never had.
+ */
+const labelTogglesInFlight = new Map<string, number>();
+interface ConfirmedLabels {
+  labelIds: string[];
+  updatedAt: string;
+}
+const confirmedLabels = new Map<string, ConfirmedLabels>();
+/** Incremented whenever the tracking is cleared: toggles started before do not touch it. */
+let editTrackingGeneration = 0;
+
+/** Records the label ids of a server version of the card, unless a newer one is known. */
+function noteConfirmedLabels(card: Pick<Card, 'id' | 'labelIds' | 'updatedAt'>) {
+  const known = confirmedLabels.get(card.id);
+  // ISO timestamps of the same format compare correctly as strings.
+  if (!known || card.updatedAt >= known.updatedAt) {
+    confirmedLabels.set(card.id, { labelIds: [...card.labelIds], updatedAt: card.updatedAt });
+  }
+}
+
+function hasLabelToggleInFlight(cardId: string): boolean {
+  return (labelTogglesInFlight.get(cardId) ?? 0) > 0;
+}
+
+/** Fields of the card with a local change still in flight (their local value is the newest). */
+function fieldsEditedInFlight(cardId: string): (CardEditField | 'labelIds')[] {
+  const fields: (CardEditField | 'labelIds')[] = CARD_EDIT_FIELDS.filter((field) => {
     const latest = latestCardEdits.get(cardEditKey(cardId, field));
     return latest !== undefined && cardEditsInFlight.has(latest);
   });
+  return hasLabelToggleInFlight(cardId) ? [...fields, 'labelIds'] : fields;
+}
+
+/** Forgets the bookkeeping of local card changes (another board, or a reset). */
+function clearCardEditTracking() {
+  latestCardEdits.clear();
+  cardEditsInFlight.clear();
+  labelTogglesInFlight.clear();
+  confirmedLabels.clear();
+  editTrackingGeneration += 1;
 }
 
 /**
@@ -286,6 +361,8 @@ function mergeEditResponse(current: Card, server: Card, sequence: number): Card 
     rank: current.rank,
     // ISO timestamps of the same format compare correctly as strings.
     updatedAt: current.updatedAt > server.updatedAt ? current.updatedAt : server.updatedAt,
+    // Label toggles in flight are newer than this response.
+    labelIds: hasLabelToggleInFlight(current.id) ? current.labelIds : server.labelIds,
   };
   for (const field of CARD_EDIT_FIELDS) {
     const latest = latestCardEdits.get(cardEditKey(current.id, field));
@@ -427,7 +504,56 @@ export const useBoardStore = create<BoardState>()((set, get) => {
     boardGeneration += 1;
     columnsChangedDuringMove = false;
     cardsChangedDuringMove = false;
+    clearCardEditTracking();
+    resetFeedsExcept(null);
     set(openedBoardInitialState);
+  }
+
+  /** Loads the labels of the opened board; a failure keeps the labels shown (or none). */
+  async function loadLabels(boardId: string, isCurrent: () => boolean) {
+    const generation = ++labelsGeneration;
+    const isLatest = () => isCurrent() && generation === labelsGeneration;
+    pendingLabelsLoad = generation;
+    if (get().labelsStatus !== 'ready') {
+      set({ labelsStatus: 'loading' });
+    }
+    try {
+      const labels = await labelsApi.listLabels(boardId);
+      if (isLatest()) {
+        set({ labels, labelsStatus: 'ready' });
+      }
+    } catch {
+      // Labels are secondary: the board stays usable, and a missing board is reported by the
+      // requests of the board itself.
+      if (isLatest()) {
+        set((state) => (state.labelsStatus === 'ready' ? {} : { labelsStatus: 'error' }));
+      }
+    } finally {
+      if (pendingLabelsLoad === generation) {
+        pendingLabelsLoad = null;
+      }
+    }
+  }
+
+  /** A remote label change may be missing from a label list being read: read it again. */
+  function rereadLabelsIfLoading() {
+    if (pendingLabelsLoad !== null) {
+      void get().reloadLabels();
+    }
+  }
+
+  /** Removes a label deleted (here or elsewhere) from the board and from every card. */
+  function dropLabel(labelId: string) {
+    for (const [cardId, known] of confirmedLabels) {
+      confirmedLabels.set(cardId, {
+        ...known,
+        labelIds: known.labelIds.filter((id) => id !== labelId),
+      });
+    }
+    set((state) => ({
+      labels: state.labels.filter((label) => label.id !== labelId),
+      cardsByColumn: removeLabelFromCards(state.cardsByColumn, labelId),
+    }));
   }
 
   /** A remote card change may be missing from a card list that is being read: read it again. */
@@ -495,6 +621,10 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       const isCurrent = () => generation === boardGeneration;
       columnsChangedDuringMove = false;
       cardsChangedDuringMove = false;
+      if (get().boardId !== boardId) {
+        clearCardEditTracking();
+      }
+      resetFeedsExcept(boardId);
       // Presence comes from the socket, which may have joined before the board started loading.
       set((state) => ({
         ...openedBoardInitialState,
@@ -502,8 +632,10 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         boardStatus: 'loading',
         presence: state.boardId === boardId ? state.presence : [],
       }));
-      // Cards load alongside; the columns are shown first, with card skeletons until they arrive.
+      // Cards and labels load alongside; the columns are shown first, with card skeletons until
+      // the cards arrive.
       const cardsLoading = loadCards(boardId, isCurrent);
+      const labelsLoading = loadLabels(boardId, isCurrent);
       const snapshot = ++snapshotGeneration;
       // A resync started meanwhile (e.g. after joining the socket room) has newer data.
       const isLatestSnapshot = () => isCurrent() && snapshot === snapshotGeneration;
@@ -534,7 +666,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       } finally {
         columnsRead.settle();
       }
-      await cardsLoading;
+      await Promise.all([cardsLoading, labelsLoading]);
     },
 
     reloadColumns: async () => {
@@ -737,6 +869,18 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       if ((sameColumn && location.index === toIndex) || toIndex < 0 || toIndex > maxIndex) {
         return;
       }
+      // A full column with a strict WIP limit refuses cards from other columns. The server would
+      // answer 409, so the move is not even attempted.
+      const target = get().columns.find((column) => column.id === toColumnId);
+      if (
+        !sameColumn &&
+        target?.wipStrict === true &&
+        target.wipLimit !== null &&
+        targetLength >= target.wipLimit
+      ) {
+        set({ notice: wipLimitMessage(target.title, target.wipLimit) });
+        return;
+      }
       const { boardId, isCurrent } = captureBoard();
       const original = location.card;
       const originalList = cardsOf(cardsByColumn, location.columnId);
@@ -781,7 +925,10 @@ export const useBoardStore = create<BoardState>()((set, get) => {
           cardsByColumn: restoreCardPosition(state.cardsByColumn, original, originalList),
           notice: getCardErrorMessage(error),
         }));
-        needsReload = needsCardsReload(error);
+        // A strict WIP refusal means the local card count of the column was stale.
+        needsReload =
+          needsCardsReload(error) ||
+          getApiErrorInfo(error).code === CARD_ERROR_CODES.WIP_LIMIT_EXCEEDED;
         columnGone = isColumnGoneError(error);
       } finally {
         if (cardMoveInFlight === token) {
@@ -817,6 +964,9 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       try {
         const card = await cardsApi.updateCard(boardId, cardId, input);
         if (isCurrent()) {
+          if (hasLabelToggleInFlight(cardId)) {
+            noteConfirmedLabels(card);
+          }
           setCards((cards) => {
             const current = findCard(cards, cardId)?.card;
             return current ? replaceCard(cards, mergeEditResponse(current, card, sequence)) : cards;
@@ -858,6 +1008,147 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       if (get().boardId === card.boardId) {
         setCards((cards) => insertCardByRank(cards, card));
       }
+    },
+
+    reloadLabels: async () => {
+      if (get().boardId === null) {
+        return;
+      }
+      const { boardId, isCurrent } = captureBoard();
+      await loadLabels(boardId, isCurrent);
+    },
+
+    createLabel: async (input) => {
+      const { boardId, isCurrent } = captureBoard();
+      const label = await labelsApi.createLabel(boardId, input);
+      if (isCurrent()) {
+        set((state) => ({ labels: upsertLabel(state.labels, label) }));
+      }
+      return label;
+    },
+
+    updateLabel: async (labelId, input) => {
+      const { boardId, isCurrent } = captureBoard();
+      try {
+        const label = await labelsApi.updateLabel(boardId, labelId, input);
+        if (isCurrent()) {
+          set((state) => ({ labels: upsertLabel(state.labels, label) }));
+        }
+        return label;
+      } catch (error) {
+        if (isCurrent() && isNotFoundError(error)) {
+          dropLabel(labelId);
+        }
+        throw error;
+      }
+    },
+
+    deleteLabel: async (labelId) => {
+      const { boardId, isCurrent } = captureBoard();
+      try {
+        await labelsApi.deleteLabel(boardId, labelId);
+      } catch (error) {
+        // A label deleted elsewhere is gone either way.
+        if (!isNotFoundError(error)) {
+          throw error;
+        }
+      }
+      if (isCurrent()) {
+        dropLabel(labelId);
+      }
+    },
+
+    toggleCardLabel: async (cardId, labelId, attach) => {
+      const { boardId, isCurrent } = captureBoard();
+      const shown = findCard(get().cardsByColumn, cardId)?.card;
+      if (!shown || shown.labelIds.includes(labelId) === attach) {
+        return;
+      }
+      const tracking = editTrackingGeneration;
+      if (!hasLabelToggleInFlight(cardId)) {
+        // Nothing in flight: the shown ids are the newest confirmed ones.
+        confirmedLabels.set(cardId, { labelIds: [...shown.labelIds], updatedAt: shown.updatedAt });
+      }
+      labelTogglesInFlight.set(cardId, (labelTogglesInFlight.get(cardId) ?? 0) + 1);
+      setCards((cards) =>
+        replaceCard(cards, {
+          ...shown,
+          labelIds: toggleLabelId(shown.labelIds, labelId, attach, get().labels),
+        }),
+      );
+      /** Counts this toggle as settled; `true` when it was the last one in flight for the card. */
+      const settle = (): boolean => {
+        if (tracking !== editTrackingGeneration) {
+          // The tracking was cleared (another board was opened meanwhile).
+          return false;
+        }
+        const remaining = (labelTogglesInFlight.get(cardId) ?? 1) - 1;
+        if (remaining > 0) {
+          labelTogglesInFlight.set(cardId, remaining);
+          return false;
+        }
+        labelTogglesInFlight.delete(cardId);
+        return true;
+      };
+      /** Shows the newest confirmed ids on the card (after its last toggle settled). */
+      const showConfirmed = () => {
+        const known = confirmedLabels.get(cardId);
+        if (!known) {
+          return;
+        }
+        setCards((cards) => {
+          const current = findCard(cards, cardId)?.card;
+          return current
+            ? replaceCard(cards, {
+                ...current,
+                labelIds: known.labelIds,
+                updatedAt:
+                  current.updatedAt > known.updatedAt ? current.updatedAt : known.updatedAt,
+              })
+            : cards;
+        });
+      };
+      let card: Card;
+      try {
+        card = attach
+          ? await labelsApi.attachLabel(boardId, cardId, labelId)
+          : await labelsApi.detachLabel(boardId, cardId, labelId);
+      } catch (error) {
+        const wasLast = settle();
+        if (isCurrent()) {
+          const { status, code } = getApiErrorInfo(error);
+          if (code === LABEL_ERROR_CODES.LABEL_NOT_FOUND) {
+            // The label was deleted elsewhere.
+            dropLabel(labelId);
+          } else if (status === 404) {
+            // The card was deleted elsewhere.
+            setCards((cards) => removeCard(cards, cardId));
+          } else if (wasLast) {
+            showConfirmed();
+          } else {
+            // Other toggles are in flight: undo only this label until they settle.
+            setCards((cards) => {
+              const current = findCard(cards, cardId)?.card;
+              return current
+                ? replaceCard(cards, {
+                    ...current,
+                    labelIds: toggleLabelId(current.labelIds, labelId, !attach, get().labels),
+                  })
+                : cards;
+            });
+          }
+        }
+        throw error;
+      }
+      const wasLast = settle();
+      if (!isCurrent()) {
+        return;
+      }
+      noteConfirmedLabels(card);
+      if (wasLast) {
+        showConfirmed();
+      }
+      void reloadIfListInFlight();
     },
 
     addMember: async (input) => {
@@ -977,6 +1268,9 @@ export const useBoardStore = create<BoardState>()((set, get) => {
             return;
           }
           const { card } = event.payload;
+          if (hasLabelToggleInFlight(card.id)) {
+            noteConfirmedLabels(card);
+          }
           const shown = findCard(state.cardsByColumn, card.id)?.card;
           // Fields with a local edit in flight keep their local (newer) value.
           const merged = shown
@@ -991,6 +1285,9 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         }
         case 'card:updated': {
           const { card } = event.payload;
+          if (hasLabelToggleInFlight(card.id)) {
+            noteConfirmedLabels(card);
+          }
           setCards((cards) => updateCardFields(cards, card, fieldsEditedInFlight(card.id)));
           rereadCardsIfLoading();
           return;
@@ -1014,6 +1311,25 @@ export const useBoardStore = create<BoardState>()((set, get) => {
           }
           setCards((cards) => applyCardRanks(cards, event.payload.columnId, event.payload.ranks));
           rereadCardsIfLoading();
+          return;
+        case 'label:created':
+        case 'label:updated':
+          set((current) => ({ labels: upsertLabel(current.labels, event.payload.label) }));
+          rereadLabelsIfLoading();
+          return;
+        case 'label:deleted':
+          dropLabel(event.payload.labelId);
+          rereadLabelsIfLoading();
+          // A card list being read may still carry the label.
+          rereadCardsIfLoading();
+          return;
+        case 'comment:created':
+        case 'comment:updated':
+        case 'comment:deleted':
+          applyCommentEvent(event);
+          return;
+        case 'activity:created':
+          receiveActivity(event.payload.activity);
           return;
         case 'member:added':
           set((current) => ({
@@ -1061,13 +1377,19 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       cardsChangedDuringMove ||= deferCards;
       const columnsRead = deferColumns ? null : beginColumnsRead();
       const cardsLoading = deferCards ? Promise.resolve() : loadCards(boardId, isCurrent);
+      // Events missed outside the room may have changed the labels and the open feeds as well.
+      const sideLoads = Promise.all([
+        cardsLoading,
+        loadLabels(boardId, isCurrent),
+        reloadFeeds(boardId),
+      ]);
       try {
         const [board, columns, members] = await Promise.all([
           boardsApi.getBoard(boardId),
           columnsRead ? columnsApi.listColumns(boardId) : Promise.resolve(null),
           boardsApi.listMembers(boardId),
         ]);
-        await cardsLoading;
+        await sideLoads;
         if (isLatestSnapshot()) {
           set({
             board,
@@ -1079,7 +1401,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         }
         return 'ok';
       } catch (error) {
-        await cardsLoading;
+        await sideLoads;
         if (!isLatestSnapshot()) {
           return 'ok';
         }
@@ -1122,12 +1444,14 @@ export function resetBoardStore(): void {
   columnsGeneration += 1;
   pendingColumnsLoad = null;
   snapshotGeneration += 1;
-  latestCardEdits.clear();
-  cardEditsInFlight.clear();
+  labelsGeneration += 1;
+  pendingLabelsLoad = null;
+  clearCardEditTracking();
   columnMoveInFlight = null;
   cardMoveInFlight = null;
   columnsChangedDuringMove = false;
   cardsChangedDuringMove = false;
+  resetFeedsExcept(null);
   useBoardStore.setState(initialState);
 }
 

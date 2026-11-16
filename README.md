@@ -14,6 +14,7 @@ Projekt realizowany w ramach pracy dyplomowej inżynierskiej
 - Rejestracja i logowanie (JWT z rotacją refresh tokenów)
 - Tablice, kolumny i karty; role członków tablicy (OWNER, ADMIN, MEMBER, VIEWER)
 - Przeciąganie kart i kolumn (kolejność oparta na algorytmie LexoRank)
+- Etykiety, komentarze i historia aktywności tablicy; filtrowanie kart po tekście, osobie i etykiecie
 - Synchronizacja zmian w czasie rzeczywistym (Socket.io)
 - Limity WIP, analityka przepływu (czas cyklu, przepustowość, CFD) i prognoza Monte Carlo
 

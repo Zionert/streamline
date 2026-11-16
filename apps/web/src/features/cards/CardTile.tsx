@@ -1,8 +1,9 @@
-import type { Card } from '@streamline/shared';
+import type { Card, Label } from '@streamline/shared';
 import { SquareCheck } from 'lucide-react';
 import type { ComponentProps, KeyboardEvent } from 'react';
 
 import { Avatar, type AvatarStackPerson } from '@/components/ui/avatar';
+import { LabelPill } from '@/features/labels/LabelPill';
 import { cn } from '@/lib/utils';
 
 import { cardTileLabel } from './cardLabels';
@@ -12,6 +13,8 @@ export interface CardTileProps extends Omit<ComponentProps<'div'>, 'children' | 
   card: Card;
   /** The assigned member, `null` when the card is unassigned (or the member is unknown). */
   assignee: AvatarStackPerson | null;
+  /** The card's labels (resolved from `card.labelIds`), in the card's order. */
+  labels?: readonly Label[];
   /** Opens the card details (click or Enter). */
   onOpen: () => void;
   /** Drag handle props were spread on the tile: Space lifts the card instead of opening it. */
@@ -20,13 +23,16 @@ export interface CardTileProps extends Omit<ComponentProps<'div'>, 'children' | 
   isDragging?: boolean;
 }
 
+const NO_LABELS: readonly Label[] = [];
+
 /**
- * A card on the board: title (two lines at most), key, priority and assignee. The whole tile is
- * a button that opens the details; when draggable it is also the drag handle.
+ * A card on the board: title (two lines at most), key, labels, priority and assignee. The whole
+ * tile is a button that opens the details; when draggable it is also the drag handle.
  */
 export function CardTile({
   card,
   assignee,
+  labels = NO_LABELS,
   onOpen,
   isDraggable = false,
   isDragging = false,
@@ -48,7 +54,11 @@ export function CardTile({
       role="button"
       tabIndex={0}
       {...props}
-      aria-label={cardTileLabel(card, assignee?.name ?? null)}
+      aria-label={cardTileLabel(
+        card,
+        assignee?.name ?? null,
+        labels.map((label) => label.name),
+      )}
       data-card-key={card.key}
       onClick={onOpen}
       onKeyDown={handleKeyDown}
@@ -63,8 +73,15 @@ export function CardTile({
       </p>
       <div className="flex min-h-6 items-center gap-2">
         <SquareCheck aria-hidden="true" className="size-4 shrink-0 text-primary" strokeWidth={2} />
-        <span className="text-xs font-semibold text-subtle">{card.key}</span>
-        <span className="ml-auto flex items-center gap-2">
+        <span className="shrink-0 text-xs font-semibold text-subtle">{card.key}</span>
+        {labels.length > 0 && (
+          <span data-testid="card-labels" className="flex min-w-0 flex-1 flex-wrap gap-1">
+            {labels.map((label) => (
+              <LabelPill key={label.id} name={label.name} color={label.color} size="sm" />
+            ))}
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
           <PriorityFlag priority={card.priority} />
           {assignee && <Avatar userId={assignee.userId} name={assignee.name} size="sm" />}
         </span>

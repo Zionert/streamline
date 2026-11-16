@@ -296,7 +296,7 @@ describe('moveCard', () => {
     expect(ids('col-done')).toEqual(['t1']);
   });
 
-  it('rolls back only the moved card on WIP_LIMIT_EXCEEDED without a reload', async () => {
+  it('rolls back only the moved card on WIP_LIMIT_EXCEEDED and reloads the stale counts', async () => {
     await openBoard();
     mock.current.on('PATCH', `${CARDS}/t1/move`, {
       status: 409,
@@ -310,7 +310,8 @@ describe('moveCard', () => {
     expect(cardsOf(useBoardStore.getState().cardsByColumn, 'col-todo')[0]).toEqual(t1);
     expect(useBoardStore.getState().notice).toBe('This column has reached its WIP limit.');
     expect(useBoardStore.getState().isMovingCard).toBe(false);
-    expect(mock.current.requestsTo('GET', CARDS)).toHaveLength(1);
+    // The server knew more cards in the column than this client: the cards are read again.
+    expect(mock.current.requestsTo('GET', CARDS)).toHaveLength(2);
   });
 
   it('keeps an edit made while the failed move was in flight', async () => {

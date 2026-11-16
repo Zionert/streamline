@@ -14,7 +14,10 @@ export interface ChangeOrigin {
  * change has been committed; REST works the same without a socket server (`noopBoardEvents`).
  */
 export interface BoardEvents {
-  /** Sends the event to the board room (`payload.boardId`), except the originating socket. */
+  /**
+   * Sends the event to the board room (`payload.boardId`), except the originating socket — unless
+   * the event is one of `ECHOED_BOARD_EVENTS` (e.g. `activity:created`), which every socket gets.
+   */
   publish<E extends BoardEventName>(
     name: E,
     payload: BoardEventPayloads[E],

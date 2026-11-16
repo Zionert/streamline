@@ -1,11 +1,14 @@
 import type { AddressInfo } from 'node:net';
 
 import {
+  activityListResponseSchema,
   boardEventSchemas,
   boardResponseSchema,
   boardRoom,
   cardResponseSchema,
   columnListResponseSchema,
+  commentResponseSchema,
+  labelResponseSchema,
   columnResponseSchema,
   RANK_MAX_LENGTH,
   SOCKET_ID_HEADER,
@@ -174,6 +177,7 @@ function as(user: TestUser, origin?: TestSocket) {
   return {
     get: (path: string) => send(request(server.app).get(path)),
     post: (path: string) => send(request(server.app).post(path)),
+    put: (path: string) => send(request(server.app).put(path)),
     patch: (path: string) => send(request(server.app).patch(path)),
     delete: (path: string) => send(request(server.app).delete(path)),
   };
@@ -540,6 +544,175 @@ describe('broadcasting REST changes', () => {
     const { role: _role, ...board } = boardResponseSchema.parse(response.body).board;
     expect(payload.board).toEqual(board);
     expect(recorder.events.find((event) => event.name === 'board:updated')).toBeUndefined();
+  });
+});
+
+describe('labels, comments and activity', () => {
+  it('broadcasts label changes to the room except the originating socket', async () => {
+    const origin = await viewer(owner);
+    const other = await viewer(member);
+    const path = `/boards/${boardId}/labels`;
+
+    const created = await as(owner, origin.socket).post(path).send({ name: 'Bug', color: 'RED' });
+    expect(created.status).toBe(201);
+    const label = labelResponseSchema.parse(created.body).label;
+    expect(await other.recorder.takeBoardEvent('label:created')).toEqual({
+      boardId,
+      actorId: owner.id,
+      label,
+    });
+
+    const updated = await as(owner, origin.socket)
+      .patch(`${path}/${label.id}`)
+      .send({ color: 'BLUE' });
+    expect((await other.recorder.takeBoardEvent('label:updated')).label).toEqual(
+      labelResponseSchema.parse(updated.body).label,
+    );
+
+    expect((await as(owner, origin.socket).delete(`${path}/${label.id}`)).status).toBe(204);
+    expect(await other.recorder.takeBoardEvent('label:deleted')).toEqual({
+      boardId,
+      actorId: owner.id,
+      labelId: label.id,
+    });
+
+    await delay(QUIET_MS);
+    expect(origin.recorder.names().filter((name) => name.startsWith('label:'))).toEqual([]);
+  });
+
+  it('broadcasts a label attached to a card as card:updated with its labelIds', async () => {
+    const { recorder } = await viewer(member);
+    const card = await createCard(column(1).id, 'Card');
+    const label = labelResponseSchema.parse(
+      (await as(owner).post(`/boards/${boardId}/labels`).send({ name: 'Bug', color: 'RED' })).body,
+    ).label;
+    await recorder.take('card:created');
+
+    const response = await as(owner).put(`/boards/${boardId}/cards/${card.id}/labels/${label.id}`);
+    expect(response.status).toBe(200);
+
+    const payload = await recorder.takeBoardEvent('card:updated');
+    expect(payload.card).toEqual(cardResponseSchema.parse(response.body).card);
+    expect(payload.card.labelIds).toEqual([label.id]);
+  });
+
+  it('broadcasts comment changes, deletions with the card id', async () => {
+    const { recorder } = await viewer(owner);
+    const card = await createCard(column(1).id, 'Card');
+    const path = `/boards/${boardId}/cards/${card.id}/comments`;
+
+    const created = await as(member).post(path).send({ body: 'Hello' });
+    expect(created.status).toBe(201);
+    const comment = commentResponseSchema.parse(created.body).comment;
+    expect(await recorder.takeBoardEvent('comment:created')).toEqual({
+      boardId,
+      actorId: member.id,
+      comment,
+    });
+
+    const edited = await as(member).patch(`${path}/${comment.id}`).send({ body: 'Hello!' });
+    expect((await recorder.takeBoardEvent('comment:updated')).comment).toEqual(
+      commentResponseSchema.parse(edited.body).comment,
+    );
+
+    expect((await as(owner).delete(`${path}/${comment.id}`)).status).toBe(204);
+    expect(await recorder.takeBoardEvent('comment:deleted')).toEqual({
+      boardId,
+      actorId: owner.id,
+      cardId: card.id,
+      commentId: comment.id,
+    });
+  });
+
+  it('delivers activity:created to the originating socket as well, after the change', async () => {
+    const origin = await viewer(owner);
+    const other = await viewer(member);
+
+    const response = await as(owner, origin.socket)
+      .post(`/boards/${boardId}/cards`)
+      .send({ columnId: column(1).id, title: 'Card' });
+    expect(response.status).toBe(201);
+    const card = cardResponseSchema.parse(response.body).card;
+
+    await waitFor(() => (other.recorder.events.length >= 2 ? true : undefined), 'two events');
+    // The change itself reaches only the other socket, before its activity entry.
+    expect(other.recorder.names()).toEqual(['card:created', 'activity:created']);
+    const own = await origin.recorder.takeBoardEvent('activity:created');
+    const others = await other.recorder.takeBoardEvent('activity:created');
+    expect(own).toEqual(others);
+    expect(own).toMatchObject({
+      boardId,
+      actorId: owner.id,
+      activity: {
+        type: 'CARD_CREATED',
+        cardId: card.id,
+        actor: { id: owner.id, name: owner.name },
+        payload: { card: { key: card.key, title: 'Card' } },
+      },
+    });
+    await delay(QUIET_MS);
+    expect(origin.recorder.has('card:created')).toBe(false);
+    const feed = await as(owner).get(`/boards/${boardId}/activity?limit=1`);
+    expect(activityListResponseSchema.parse(feed.body).activities).toEqual([own.activity]);
+  });
+
+  it('never suppresses activity:created, even when published with the origin', async () => {
+    const origin = await viewer(owner);
+    const activity = {
+      id: 'activity-1',
+      boardId,
+      cardId: null,
+      actor: { id: owner.id, name: owner.name },
+      createdAt: new Date().toISOString(),
+      type: 'COLUMN_MOVED' as const,
+      payload: { column: { id: column(1).id, name: column(1).title } },
+    };
+    const originOf = { socketId: origin.socket.id };
+
+    server.realtime.events.publish(
+      'activity:created',
+      { boardId, actorId: owner.id, activity },
+      originOf,
+    );
+    server.realtime.events.publish(
+      'column:moved',
+      { boardId, actorId: owner.id, column: column(1) },
+      originOf,
+    );
+
+    expect((await origin.recorder.takeBoardEvent('activity:created')).activity).toEqual(activity);
+    await delay(QUIET_MS);
+    expect(origin.recorder.has('column:moved')).toBe(false);
+  });
+
+  it('announces the change before its activity entry', async () => {
+    const { recorder } = await viewer(member);
+
+    await as(owner)
+      .patch(`/boards/${boardId}/columns/${column(1).id}`)
+      .send({ title: 'Ready' });
+
+    await waitFor(() => (recorder.events.length >= 2 ? true : undefined), 'two events');
+    expect(recorder.names()).toEqual(['column:updated', 'activity:created']);
+  });
+
+  it('sends no activity entry for a rejected change', async () => {
+    const { recorder } = await viewer(member);
+    await db.column.update({
+      where: { id: column(2).id },
+      data: { wipLimit: 1, wipStrict: true },
+    });
+    await createCard(column(2).id, 'Busy');
+    await recorder.take('activity:created');
+    recorder.clear();
+
+    const response = await as(owner)
+      .post(`/boards/${boardId}/cards`)
+      .send({ columnId: column(2).id, title: 'Too many' });
+    expect(response.status).toBe(409);
+
+    await delay(QUIET_MS);
+    expect(recorder.names()).toEqual([]);
   });
 });
 

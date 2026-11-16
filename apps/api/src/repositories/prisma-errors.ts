@@ -22,6 +22,8 @@ export function isPrismaError(
 export const PG_ERROR = {
   /** `lock_not_available`, raised e.g. when `lock_timeout` expires. */
   LOCK_NOT_AVAILABLE: '55P03',
+  /** `deadlock_detected`: PostgreSQL aborted this transaction to break a lock cycle. */
+  DEADLOCK_DETECTED: '40P01',
 } as const;
 
 function property(value: unknown, key: string): unknown {

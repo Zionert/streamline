@@ -31,13 +31,15 @@ import {
   BOARD_NOT_FOUND_MESSAGE,
   type BoardMembership,
 } from './board-access.service.js';
+import { publishActivity } from './activity-publisher.js';
 import { busyToServiceUnavailable } from './ranked-write.js';
 
 /**
  * Board and membership use cases. Methods taking a `BoardMembership` expect the caller's
  * membership verified by `BoardAccessService`; they re-check the role themselves as well.
  * Successful changes are broadcast through `BoardEvents` (the optional `origin` identifies the
- * client that made the change, so it is not sent its own change back).
+ * client that made the change, so it is not sent its own change back). Membership changes are
+ * recorded in the activity log in their transaction and announced with `activity:created`.
  */
 export interface BoardService {
   listForUser(userId: string): Promise<Board[]>;
@@ -125,6 +127,11 @@ export function toBoardSummary(board: BoardRecord): BoardSummary {
   };
 }
 
+/** A member as described in activity entries (no email). */
+function userRef(member: BoardMemberWithUser): { id: string; name: string } {
+  return { id: member.userId, name: member.user.name };
+}
+
 export function toBoardMember(member: BoardMemberWithUser): BoardMember {
   return {
     userId: member.userId,
@@ -141,31 +148,6 @@ export function createBoardService({
   users,
   events = noopBoardEvents,
 }: BoardServiceDependencies): BoardService {
-  /**
-   * Explains why a conditional update/delete of a member matched no row:
-   * the member does not exist, or it is the OWNER.
-   */
-  async function failForTarget(
-    boardId: string,
-    targetUserId: string,
-    ownerMessage: string,
-  ): Promise<never> {
-    const target = await members.find(boardId, targetUserId);
-    if (!target) {
-      throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
-    }
-    throw new ForbiddenError(ownerMessage);
-  }
-
-  /** Removes a non-owner member (and unassigns their cards); 503 `BOARD_BUSY` on lock timeout. */
-  async function removeUnlessOwner(boardId: string, userId: string): Promise<boolean> {
-    try {
-      return await members.removeUnlessOwner(boardId, userId);
-    } catch (err) {
-      throw busyToServiceUnavailable(err);
-    }
-  }
-
   return {
     async listForUser(userId) {
       const list = await boards.listForUser(userId);
@@ -236,6 +218,7 @@ export function createBoardService({
 
     async addMember(membership, { email, role }, origin) {
       assertBoardPermission(membership, 'members:manage');
+      const { boardId, userId: actorId } = membership;
       const user = await users.findByEmail(email);
       if (!user) {
         throw new NotFoundError(
@@ -244,15 +227,21 @@ export function createBoardService({
         );
       }
 
-      const result = await members.add({ boardId: membership.boardId, userId: user.id, role });
+      let result;
+      try {
+        result = await members.add({ boardId, userId: user.id, role }, (added) => ({
+          boardId,
+          actorId,
+          content: { type: 'MEMBER_ADDED', payload: { member: userRef(added), role: added.role } },
+        }));
+      } catch (err) {
+        throw busyToServiceUnavailable(err);
+      }
       switch (result.status) {
         case 'created': {
           const member = toBoardMember(result.member);
-          events.publish(
-            'member:added',
-            { boardId: membership.boardId, actorId: membership.userId, member },
-            origin,
-          );
+          events.publish('member:added', { boardId, actorId, member }, origin);
+          publishActivity(events, membership, result.activity);
           return member;
         }
         case 'already-member':
@@ -267,51 +256,88 @@ export function createBoardService({
 
     async updateMemberRole(membership, targetUserId, { role }, origin) {
       assertBoardPermission(membership, 'members:manage');
-      const { boardId } = membership;
-      // Conditional update: the OWNER row can never be modified, even by a concurrent request.
-      if (!(await members.updateRoleUnlessOwner(boardId, targetUserId, role))) {
-        return failForTarget(boardId, targetUserId, "The board owner's role cannot be changed");
+      const { boardId, userId: actorId } = membership;
+      let result;
+      try {
+        result = await members.updateRoleUnlessOwner(
+          boardId,
+          targetUserId,
+          role,
+          (before, after) =>
+            before.role === after.role
+              ? null
+              : {
+                  boardId,
+                  actorId,
+                  content: {
+                    type: 'MEMBER_ROLE_CHANGED',
+                    payload: {
+                      member: userRef(after),
+                      role: { from: before.role, to: after.role },
+                    },
+                  },
+                },
+        );
+      } catch (err) {
+        throw busyToServiceUnavailable(err);
       }
-      const updated = await members.findWithUser(boardId, targetUserId);
-      if (!updated) {
-        throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
+      switch (result.status) {
+        case 'updated': {
+          const member = toBoardMember(result.member);
+          events.publish('member:updated', { boardId, actorId, member }, origin);
+          publishActivity(events, membership, result.activity);
+          return member;
+        }
+        case 'not-found':
+          throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
+        case 'owner':
+          throw new ForbiddenError("The board owner's role cannot be changed");
       }
-      const member = toBoardMember(updated);
-      events.publish('member:updated', { boardId, actorId: membership.userId, member }, origin);
-      return member;
     },
 
     async removeMember(membership, targetUserId, origin) {
       const { boardId, userId } = membership;
-      // The removed user first loses the room, so they never see events after their removal.
-      const announceRemoval = () => {
-        events.revokeAccess(boardId, targetUserId, origin);
-        events.publish(
-          'member:removed',
-          { boardId, actorId: userId, userId: targetUserId },
-          origin,
-        );
-      };
-
-      if (targetUserId === userId) {
+      const leaving = targetUserId === userId;
+      if (leaving) {
         if (!canLeaveBoard(membership.role)) {
           throw new ConflictError(
             'The board owner cannot leave the board',
             BOARD_ERROR_CODES.OWNER_CANNOT_LEAVE,
           );
         }
-        if (!(await removeUnlessOwner(boardId, userId))) {
-          throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
-        }
-        announceRemoval();
-        return;
+      } else {
+        assertBoardPermission(membership, 'members:manage');
       }
 
-      assertBoardPermission(membership, 'members:manage');
-      if (!(await removeUnlessOwner(boardId, targetUserId))) {
-        await failForTarget(boardId, targetUserId, 'The board owner cannot be removed');
+      let result;
+      try {
+        result = await members.removeUnlessOwner(boardId, targetUserId, (removed) => ({
+          boardId,
+          actorId: userId,
+          content: {
+            type: leaving ? 'MEMBER_LEFT' : 'MEMBER_REMOVED',
+            payload: { member: userRef(removed), role: removed.role },
+          },
+        }));
+      } catch (err) {
+        throw busyToServiceUnavailable(err);
       }
-      announceRemoval();
+      switch (result.status) {
+        case 'removed':
+          // The removed user first loses the room, so they never see events after their removal.
+          events.revokeAccess(boardId, targetUserId, origin);
+          events.publish(
+            'member:removed',
+            { boardId, actorId: userId, userId: targetUserId },
+            origin,
+          );
+          publishActivity(events, membership, result.activity);
+          return;
+        case 'not-found':
+          throw new NotFoundError(MEMBER_NOT_FOUND_MESSAGE);
+        case 'owner':
+          throw new ForbiddenError('The board owner cannot be removed');
+      }
     },
   };
 }

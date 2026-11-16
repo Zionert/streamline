@@ -8,6 +8,8 @@ import {
   boardJoinAckSchema,
   boardRoom,
   boardRoomRequestSchema,
+  ECHOED_BOARD_EVENTS,
+  isEchoSuppressed,
   parseBoardEvent,
   presenceUpdateEventSchema,
   userRoom,
@@ -122,5 +124,69 @@ describe('event payload schemas', () => {
         .success,
     ).toBe(true);
     expect(boardJoinAckSchema.safeParse({ ok: true }).success).toBe(false);
+  });
+});
+
+describe('echo suppression', () => {
+  it('delivers activity:created to the originating socket as well', () => {
+    expect(isEchoSuppressed(WS_EVENTS.ACTIVITY_CREATED)).toBe(false);
+    expect([...ECHOED_BOARD_EVENTS]).toEqual([WS_EVENTS.ACTIVITY_CREATED]);
+  });
+
+  it('withholds every other board event from the originating socket', () => {
+    for (const name of BOARD_EVENT_NAMES.filter((event) => event !== WS_EVENTS.ACTIVITY_CREATED)) {
+      expect(isEchoSuppressed(name), name).toBe(true);
+    }
+  });
+});
+
+describe('label, comment and activity events', () => {
+  const meta = { boardId: 'b1', actorId: 'u1' };
+  const label = {
+    id: 'l1',
+    boardId: 'b1',
+    name: 'Bug',
+    color: 'RED',
+    createdAt: TIMESTAMP,
+    updatedAt: TIMESTAMP,
+  };
+  const comment = {
+    id: 'cm1',
+    cardId: 'c1',
+    boardId: 'b1',
+    author: user,
+    body: 'Hi',
+    createdAt: TIMESTAMP,
+    updatedAt: TIMESTAMP,
+    editedAt: null,
+  };
+  const activity = {
+    id: 'a1',
+    boardId: 'b1',
+    cardId: null,
+    actor: user,
+    createdAt: TIMESTAMP,
+    type: 'COLUMN_CREATED',
+    payload: { column: { id: 'col-1', name: 'To Do' } },
+  };
+
+  it.each([
+    ['label:created', { ...meta, label }],
+    ['label:updated', { ...meta, label }],
+    ['label:deleted', { ...meta, labelId: 'l1' }],
+    ['comment:created', { ...meta, comment }],
+    ['comment:updated', { ...meta, comment }],
+    ['comment:deleted', { ...meta, cardId: 'c1', commentId: 'cm1' }],
+    ['activity:created', { ...meta, activity }],
+  ])('parses %s', (name, payload) => {
+    expect(parseBoardEvent(name, payload)).toEqual({ name, payload });
+  });
+
+  it.each([
+    ['label:deleted', meta],
+    ['comment:deleted', { ...meta, commentId: 'cm1' }],
+    ['activity:created', { ...meta, activity: { ...activity, type: 'NOPE' } }],
+  ])('rejects a malformed %s', (name, payload) => {
+    expect(parseBoardEvent(name, payload)).toBeNull();
   });
 });

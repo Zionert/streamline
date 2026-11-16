@@ -2,6 +2,7 @@ import { isValidRank, type BoardRole } from '@streamline/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ConflictError, ForbiddenError, NotFoundError } from '../errors/app-error.js';
+import { BoardBusyError } from '../repositories/board-transaction.js';
 import type {
   BoardMemberRecord,
   BoardMemberRepository,
@@ -9,6 +10,7 @@ import type {
 } from '../repositories/board-member.repository.js';
 import type { BoardRecord, BoardRepository } from '../repositories/board.repository.js';
 import type { User } from '../repositories/user.repository.js';
+import { fakeActivityRecord } from '../test/activity.js';
 import { createRecordingBoardEvents } from '../test/board-events.js';
 import { createBoardAccessService, type BoardMembership } from './board-access.service.js';
 import {
@@ -66,10 +68,35 @@ function fakeMembers(overrides: Partial<BoardMemberRepository> = {}): BoardMembe
     findWithUser: vi.fn(() => Promise.resolve(null)),
     listForBoard: vi.fn(() => Promise.resolve([])),
     add: vi.fn(() => Promise.resolve({ status: 'already-member' as const })),
-    updateRoleUnlessOwner: vi.fn(() => Promise.resolve(false)),
-    removeUnlessOwner: vi.fn(() => Promise.resolve(false)),
+    updateRoleUnlessOwner: vi.fn(() => Promise.resolve({ status: 'not-found' as const })),
+    removeUnlessOwner: vi.fn(() => Promise.resolve({ status: 'not-found' as const })),
     ...overrides,
   };
+}
+
+/** `add` creating `member` and describing it like the real repository. */
+function addingMember(member: BoardMemberWithUser): BoardMemberRepository['add'] {
+  return (_data, describe) =>
+    Promise.resolve({ status: 'created', member, activity: fakeActivityRecord(describe(member)) });
+}
+
+/** `updateRoleUnlessOwner` changing the role of `before` to the requested one. */
+function updatingRole(before: BoardMemberWithUser): BoardMemberRepository['updateRoleUnlessOwner'] {
+  return (_boardId, _userId, role, describe) => {
+    const member = { ...before, role };
+    const draft = describe(before, member);
+    return Promise.resolve({
+      status: 'updated',
+      member,
+      activity: draft ? fakeActivityRecord(draft) : null,
+    });
+  };
+}
+
+/** `removeUnlessOwner` removing `removed` and describing it like the real repository. */
+function removingMember(removed: BoardMemberWithUser): BoardMemberRepository['removeUnlessOwner'] {
+  return (_boardId, _userId, describe) =>
+    Promise.resolve({ status: 'removed', activity: fakeActivityRecord(describe(removed)) });
 }
 
 function buildService(
@@ -254,7 +281,9 @@ describe('BoardService', () => {
     it('distinguishes a missing member (404) from the OWNER (403)', async () => {
       const missing = buildService({ members: fakeMembers() });
       const owner = buildService({
-        members: fakeMembers({ find: () => Promise.resolve(memberRecord('owner', 'OWNER')) }),
+        members: fakeMembers({
+          updateRoleUnlessOwner: () => Promise.resolve({ status: 'owner' as const }),
+        }),
       });
 
       await expect(
@@ -265,18 +294,27 @@ describe('BoardService', () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    it('returns 404 when the member was removed right after the update', async () => {
-      const members = fakeMembers({ updateRoleUnlessOwner: () => Promise.resolve(true) });
+    it('maps a busy board to 503 BOARD_BUSY', async () => {
+      const members = fakeMembers({
+        updateRoleUnlessOwner: () => Promise.reject(new BoardBusyError()),
+        removeUnlessOwner: () => Promise.reject(new BoardBusyError()),
+        add: () => Promise.reject(new BoardBusyError()),
+      });
+      const service = buildService({ members, user: candidate });
+      const busy = { statusCode: 503, code: 'BOARD_BUSY' };
 
       await expect(
-        buildService({ members }).updateMemberRole(as('OWNER'), 'user-3', { role: 'ADMIN' }),
-      ).rejects.toBeInstanceOf(NotFoundError);
+        service.updateMemberRole(as('OWNER'), 'user-3', { role: 'ADMIN' }),
+      ).rejects.toMatchObject(busy);
+      await expect(service.removeMember(as('OWNER'), 'user-3')).rejects.toMatchObject(busy);
+      await expect(
+        service.addMember(as('OWNER'), { email: candidate.email, role: 'MEMBER' }),
+      ).rejects.toMatchObject(busy);
     });
 
     it('returns the updated member', async () => {
       const members = fakeMembers({
-        updateRoleUnlessOwner: () => Promise.resolve(true),
-        findWithUser: () => Promise.resolve(withUser(memberRecord('user-3', 'ADMIN'))),
+        updateRoleUnlessOwner: updatingRole(withUser(memberRecord('user-3', 'MEMBER'))),
       });
 
       await expect(
@@ -293,7 +331,7 @@ describe('BoardService', () => {
 
   describe('removeMember', () => {
     it('refuses to let the OWNER leave without touching the repository', async () => {
-      const removeUnlessOwner = vi.fn(() => Promise.resolve(true));
+      const removeUnlessOwner = vi.fn(removingMember(withUser(memberRecord('user-1', 'OWNER'))));
       const members = fakeMembers({ removeUnlessOwner });
 
       await expect(
@@ -303,7 +341,9 @@ describe('BoardService', () => {
     });
 
     it('lets a VIEWER leave but not remove others', async () => {
-      const members = fakeMembers({ removeUnlessOwner: () => Promise.resolve(true) });
+      const members = fakeMembers({
+        removeUnlessOwner: removingMember(withUser(memberRecord('user-1', 'VIEWER'))),
+      });
       const service = buildService({ members });
 
       await expect(service.removeMember(as('VIEWER'), 'user-1')).resolves.toBeUndefined();
@@ -314,7 +354,7 @@ describe('BoardService', () => {
 
     it('forbids removing the OWNER', async () => {
       const members = fakeMembers({
-        find: () => Promise.resolve(memberRecord('owner', 'OWNER')),
+        removeUnlessOwner: () => Promise.resolve({ status: 'owner' as const }),
       });
 
       await expect(
@@ -402,49 +442,94 @@ describe('BoardService events', () => {
     expect(events).toEqual([{ name: 'board:deleted', payload: meta, origin }]);
   });
 
-  it('broadcasts member:added and member:updated', async () => {
+  /** The `activity:created` events, as type and payload. */
+  function activityContents(events: ReturnType<typeof serviceWithEvents>['events']) {
+    return events.flatMap((event) =>
+      event.name === 'activity:created'
+        ? [{ type: event.payload.activity.type, payload: event.payload.activity.payload }]
+        : [],
+    );
+  }
+
+  it('broadcasts member:added and member:updated, each followed by its activity entry', async () => {
     const member = withUser(memberRecord('user-2', 'MEMBER'));
     const { service, events } = serviceWithEvents(
-      fakeMembers({
-        add: vi.fn(() => Promise.resolve({ status: 'created' as const, member })),
-        updateRoleUnlessOwner: vi.fn(() => Promise.resolve(true)),
-        findWithUser: vi.fn(() => Promise.resolve(member)),
-      }),
+      fakeMembers({ add: addingMember(member), updateRoleUnlessOwner: updatingRole(member) }),
     );
 
     const added = await service.addMember(as('ADMIN'), {
       email: 'jane@example.com',
       role: 'MEMBER',
     });
-    const updated = await service.updateMemberRole(as('ADMIN'), 'user-2', { role: 'MEMBER' });
+    const updated = await service.updateMemberRole(as('ADMIN'), 'user-2', { role: 'ADMIN' });
 
-    expect(events).toEqual([
-      { name: 'member:added', payload: { ...meta, member: added }, origin: undefined },
-      { name: 'member:updated', payload: { ...meta, member: updated }, origin: undefined },
+    expect(events.map((event) => event.name)).toEqual([
+      'member:added',
+      'activity:created',
+      'member:updated',
+      'activity:created',
     ]);
+    expect(events[0]).toEqual({
+      name: 'member:added',
+      payload: { ...meta, member: added },
+      origin: undefined,
+    });
+    expect(events[2]).toEqual({
+      name: 'member:updated',
+      payload: { ...meta, member: updated },
+      origin: undefined,
+    });
+    expect(activityContents(events)).toEqual([
+      { type: 'MEMBER_ADDED', payload: { member: { id: 'user-2', name: 'Jane' }, role: 'MEMBER' } },
+      {
+        type: 'MEMBER_ROLE_CHANGED',
+        payload: { member: { id: 'user-2', name: 'Jane' }, role: { from: 'MEMBER', to: 'ADMIN' } },
+      },
+    ]);
+  });
+
+  it('records no activity when the role stays the same', async () => {
+    const member = withUser(memberRecord('user-2', 'MEMBER'));
+    const { service, events } = serviceWithEvents(
+      fakeMembers({ updateRoleUnlessOwner: updatingRole(member) }),
+    );
+
+    await service.updateMemberRole(as('ADMIN'), 'user-2', { role: 'MEMBER' });
+
+    expect(events.map((event) => event.name)).toEqual(['member:updated']);
   });
 
   it('revokes the access of a removed member before announcing the removal', async () => {
     const { service, events } = serviceWithEvents(
-      fakeMembers({ removeUnlessOwner: vi.fn(() => Promise.resolve(true)) }),
+      fakeMembers({
+        removeUnlessOwner: removingMember(withUser(memberRecord('user-2', 'VIEWER'))),
+      }),
     );
 
     await service.removeMember(as('ADMIN'), 'user-2', origin);
 
-    expect(events).toEqual([
+    expect(events.slice(0, 2)).toEqual([
       { name: 'revoke-access', boardId: 'board-1', userId: 'user-2', origin },
       { name: 'member:removed', payload: { ...meta, userId: 'user-2' }, origin },
     ]);
+    expect(activityContents(events)).toEqual([
+      {
+        type: 'MEMBER_REMOVED',
+        payload: { member: { id: 'user-2', name: 'Jane' }, role: 'VIEWER' },
+      },
+    ]);
   });
 
-  it('revokes the access of a member who leaves', async () => {
+  it('revokes the access of a member who leaves and records MEMBER_LEFT', async () => {
     const { service, events } = serviceWithEvents(
-      fakeMembers({ removeUnlessOwner: vi.fn(() => Promise.resolve(true)) }),
+      fakeMembers({
+        removeUnlessOwner: removingMember(withUser(memberRecord('user-3', 'MEMBER'))),
+      }),
     );
 
     await service.removeMember(as('MEMBER', 'user-3'), 'user-3');
 
-    expect(events).toEqual([
+    expect(events.slice(0, 2)).toEqual([
       { name: 'revoke-access', boardId: 'board-1', userId: 'user-3', origin: undefined },
       {
         name: 'member:removed',
@@ -452,11 +537,16 @@ describe('BoardService events', () => {
         origin: undefined,
       },
     ]);
+    expect(activityContents(events)).toEqual([
+      { type: 'MEMBER_LEFT', payload: { member: { id: 'user-3', name: 'Jane' }, role: 'MEMBER' } },
+    ]);
   });
 
   it('broadcasts nothing when the change fails', async () => {
     const { service, events } = serviceWithEvents(
-      fakeMembers({ find: vi.fn(() => Promise.resolve(memberRecord('user-9', 'OWNER'))) }),
+      fakeMembers({
+        removeUnlessOwner: vi.fn(() => Promise.resolve({ status: 'owner' as const })),
+      }),
     );
 
     await expect(service.removeMember(as('ADMIN'), 'user-9')).rejects.toBeInstanceOf(

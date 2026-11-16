@@ -1,5 +1,10 @@
 import type { ColumnCategory, Column as ColumnRecord } from '../generated/prisma/client.js';
 import {
+  insertActivity,
+  type ActivityRecord,
+  type NewActivityData,
+} from './activity.repository.js';
+import {
   createBoardTransactionRunner,
   DEFAULT_BOARD_TRANSACTION_OPTIONS,
   lockBoardRow,
@@ -48,6 +53,11 @@ export interface ColumnStore {
   /** Columns of the board in rank order. */
   listForBoard(boardId: string): Promise<ColumnRecord[]>;
   findInBoard(boardId: string, columnId: string): Promise<ColumnRecord | null>;
+  /**
+   * Like `findInBoard`, but locks the column row (`FOR NO KEY UPDATE`) until the end of the
+   * transaction, so its values stay as read (e.g. the old title of a rename).
+   */
+  lockInBoard(boardId: string, columnId: string): Promise<ColumnRecord | null>;
   countByCategory(boardId: string, category: ColumnCategory): Promise<number>;
   /** Number of cards in the column. */
   countCards(boardId: string, columnId: string): Promise<number>;
@@ -67,6 +77,8 @@ export interface ColumnStore {
    * `updatedAt` is left unchanged: a rebalance does not change the order.
    */
   setRanks(boardId: string, assignments: readonly RankAssignment[]): Promise<void>;
+  /** Writes an activity entry (in the transaction, when called on a transaction's store). */
+  recordActivity(data: NewActivityData): Promise<ActivityRecord>;
 }
 
 export interface ColumnRepository extends ColumnStore {
@@ -90,6 +102,15 @@ function createColumnStore(db: QueryClient): ColumnStore {
     },
 
     findInBoard(boardId, columnId) {
+      return db.column.findFirst({ where: { id: columnId, boardId } });
+    },
+
+    async lockInBoard(boardId, columnId) {
+      const rows = await db.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Column"
+        WHERE "id" = ${columnId} AND "boardId" = ${boardId}
+        FOR NO KEY UPDATE`;
+      if (rows.length === 0) return null;
       return db.column.findFirst({ where: { id: columnId, boardId } });
     },
 
@@ -131,6 +152,10 @@ function createColumnStore(db: QueryClient): ColumnStore {
         SET "rank" = v."rank"
         FROM unnest(${ids}::text[], ${ranks}::text[]) AS v("id", "rank")
         WHERE c."id" = v."id" AND c."boardId" = ${boardId}`;
+    },
+
+    recordActivity(data) {
+      return insertActivity(db, data);
     },
   };
 }

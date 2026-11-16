@@ -1,9 +1,12 @@
 import { z } from 'zod';
 
 import { rankSchema } from './rank/index.js';
+import { activitySchema } from './schemas/activity.js';
 import { boardMemberSchema, boardSummarySchema } from './schemas/board.js';
 import { cardSchema } from './schemas/card.js';
 import { columnSchema } from './schemas/column.js';
+import { commentSchema } from './schemas/comment.js';
+import { labelSchema } from './schemas/label.js';
 
 /**
  * Real-time protocol (Socket.io). REST is the only write path: the server broadcasts these events
@@ -26,7 +29,10 @@ export const WS_EVENTS = {
   /** The server gave new ranks to many columns of the board at once. */
   COLUMNS_REBALANCED: 'columns:rebalanced',
   CARD_CREATED: 'card:created',
-  /** Fields of a card changed (title, description, priority, assignee, due date). */
+  /**
+   * Fields of a card changed (title, description, priority, assignee, due date) or a label was
+   * attached to / removed from it (`labelIds`).
+   */
   CARD_UPDATED: 'card:updated',
   CARD_MOVED: 'card:moved',
   CARD_DELETED: 'card:deleted',
@@ -35,6 +41,20 @@ export const WS_EVENTS = {
   MEMBER_ADDED: 'member:added',
   MEMBER_UPDATED: 'member:updated',
   MEMBER_REMOVED: 'member:removed',
+  LABEL_CREATED: 'label:created',
+  /** Name or color of a label changed. */
+  LABEL_UPDATED: 'label:updated',
+  /** The label was deleted and removed from every card of the board. */
+  LABEL_DELETED: 'label:deleted',
+  COMMENT_CREATED: 'comment:created',
+  /** The author edited the comment. */
+  COMMENT_UPDATED: 'comment:updated',
+  COMMENT_DELETED: 'comment:deleted',
+  /**
+   * A new activity log entry. Unlike the other events it is also delivered to the socket that
+   * made the change (see {@link isEchoSuppressed}), whose feed needs it as well.
+   */
+  ACTIVITY_CREATED: 'activity:created',
   /** Users currently viewing the board changed. */
   PRESENCE_UPDATE: 'presence:update',
 } as const;
@@ -129,6 +149,8 @@ export type RankAssignmentPayload = z.infer<typeof rankAssignmentSchema>;
 const columnEventSchema = z.object({ ...changeEventShape, column: columnSchema });
 const cardEventSchema = z.object({ ...changeEventShape, card: cardSchema });
 const memberEventSchema = z.object({ ...changeEventShape, member: boardMemberSchema });
+const labelEventSchema = z.object({ ...changeEventShape, label: labelSchema });
+const commentEventSchema = z.object({ ...changeEventShape, comment: commentSchema });
 
 /**
  * Payload schemas of the events broadcast to a board room. Entities have the same shape as in
@@ -157,6 +179,17 @@ export const boardEventSchemas = {
   [WS_EVENTS.MEMBER_ADDED]: memberEventSchema,
   [WS_EVENTS.MEMBER_UPDATED]: memberEventSchema,
   [WS_EVENTS.MEMBER_REMOVED]: z.object({ ...changeEventShape, userId: z.string() }),
+  [WS_EVENTS.LABEL_CREATED]: labelEventSchema,
+  [WS_EVENTS.LABEL_UPDATED]: labelEventSchema,
+  [WS_EVENTS.LABEL_DELETED]: z.object({ ...changeEventShape, labelId: z.string() }),
+  [WS_EVENTS.COMMENT_CREATED]: commentEventSchema,
+  [WS_EVENTS.COMMENT_UPDATED]: commentEventSchema,
+  [WS_EVENTS.COMMENT_DELETED]: z.object({
+    ...changeEventShape,
+    cardId: z.string(),
+    commentId: z.string(),
+  }),
+  [WS_EVENTS.ACTIVITY_CREATED]: z.object({ ...changeEventShape, activity: activitySchema }),
 } as const;
 
 type BoardEventSchemas = typeof boardEventSchemas;
@@ -174,6 +207,21 @@ export type BoardEvent = {
 }[BoardEventName];
 
 export const BOARD_EVENT_NAMES = Object.keys(boardEventSchemas) as BoardEventName[];
+
+/**
+ * Events sent to every socket in the room, including the one that made the change. The others
+ * skip the originating socket (`X-Socket-Id`), whose client has applied the change already; an
+ * activity entry, however, is created by the server, so the originating client learns about it
+ * only from the event.
+ */
+export const ECHOED_BOARD_EVENTS: ReadonlySet<BoardEventName> = new Set<BoardEventName>([
+  WS_EVENTS.ACTIVITY_CREATED,
+]);
+
+/** Whether the event is withheld from the socket that made the change. */
+export function isEchoSuppressed(name: BoardEventName): boolean {
+  return !ECHOED_BOARD_EVENTS.has(name);
+}
 
 function isBoardEventName(name: string): name is BoardEventName {
   return Object.hasOwn(boardEventSchemas, name);

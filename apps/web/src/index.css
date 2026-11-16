@@ -72,6 +72,28 @@
   --on-primary: #ffffff;
   --on-danger: #ffffff;
 
+  /* Label pills: subtle background with dark text (contrast above 7:1). */
+  --label-green-bg: #baf3db;
+  --label-green-text: #164b35;
+  --label-yellow-bg: #f8e6a0;
+  --label-yellow-text: #533f04;
+  --label-orange-bg: #fedec8;
+  --label-orange-text: #702e00;
+  --label-red-bg: #ffd5d2;
+  --label-red-text: #5d1f1a;
+  --label-purple-bg: #dfd8fd;
+  --label-purple-text: #352c63;
+  --label-blue-bg: #cce0ff;
+  --label-blue-text: #09326c;
+  --label-sky-bg: #c6edfb;
+  --label-sky-text: #164555;
+  --label-lime-bg: #d3f1a7;
+  --label-lime-text: #37471f;
+  --label-pink-bg: #fdd0ec;
+  --label-pink-text: #50253f;
+  --label-gray-bg: #dcdfe4;
+  --label-gray-text: #282e33;
+
   --shadow-card: 0 1px 1px rgb(9 30 66 / 25%), 0 0 1px rgb(9 30 66 / 31%);
   --shadow-raised: 0 8px 12px rgb(9 30 66 / 15%), 0 0 1px rgb(9 30 66 / 31%);
 }
@@ -95,6 +117,28 @@
   --danger-text: #f87168;
   --on-primary: #1d2125;
   --on-danger: #1d2125;
+
+  /* Label pills: deep background with light text (the light theme pair, swapped). */
+  --label-green-bg: #164b35;
+  --label-green-text: #baf3db;
+  --label-yellow-bg: #533f04;
+  --label-yellow-text: #f8e6a0;
+  --label-orange-bg: #702e00;
+  --label-orange-text: #fedec8;
+  --label-red-bg: #5d1f1a;
+  --label-red-text: #ffd5d2;
+  --label-purple-bg: #352c63;
+  --label-purple-text: #dfd8fd;
+  --label-blue-bg: #09326c;
+  --label-blue-text: #cce0ff;
+  --label-sky-bg: #164555;
+  --label-sky-text: #c6edfb;
+  --label-lime-bg: #37471f;
+  --label-lime-text: #d3f1a7;
+  --label-pink-bg: #50253f;
+  --label-pink-text: #fdd0ec;
+  --label-gray-bg: #454f59;
+  --label-gray-text: #dee4ea;
 
   --shadow-card: 0 1px 1px rgb(0 0 0 / 50%), 0 0 1px rgb(0 0 0 / 50%);
   --shadow-raised: 0 8px 12px rgb(0 0 0 / 36%), 0 0 1px rgb(0 0 0 / 50%);

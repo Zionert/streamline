@@ -1,4 +1,4 @@
-import { isValidRank, RANK_MAX_LENGTH, type BoardRole } from '@streamline/shared';
+import { activitySchema, isValidRank, RANK_MAX_LENGTH, type BoardRole } from '@streamline/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -16,6 +16,8 @@ import {
   type ColumnRepository,
   type ColumnStore,
 } from '../repositories/column.repository.js';
+import type { NewActivityData } from '../repositories/activity.repository.js';
+import { fakeActivityRecord } from '../test/activity.js';
 import { createRecordingBoardEvents } from '../test/board-events.js';
 import type { BoardMembership } from './board-access.service.js';
 import {
@@ -54,6 +56,8 @@ function fakeColumns(initial: ColumnRecord[], options: FakeOptions = {}) {
   let rows = initial.map((row) => ({ ...row }));
   let collisions = options.collisions ?? 0;
   const locks: BoardLockMode[] = [];
+  /** Activity entries written, including those of attempts rolled back later. */
+  const activities: NewActivityData[] = [];
   const setRanks = vi.fn(
     (_boardId: string, assignments: readonly { id: string; rank: string }[]) => {
       for (const { id, rank } of assignments) {
@@ -71,6 +75,7 @@ function fakeColumns(initial: ColumnRecord[], options: FakeOptions = {}) {
     }
   };
   const find = (id: string) => rows.find((row) => row.id === id) ?? null;
+  const copy = (row: ColumnRecord | null) => (row ? { ...row } : null);
 
   const store: ColumnStore = {
     lockBoard: (_boardId, mode) => {
@@ -79,7 +84,9 @@ function fakeColumns(initial: ColumnRecord[], options: FakeOptions = {}) {
     },
     listForBoard: () =>
       Promise.resolve([...rows].sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0))),
-    findInBoard: (_boardId, id) => Promise.resolve(find(id)),
+    // Copies, so the values read before a change stay as they were (like rows read from the DB).
+    findInBoard: (_boardId, id) => Promise.resolve(copy(find(id))),
+    lockInBoard: (_boardId, id) => Promise.resolve(copy(find(id))),
     countByCategory: (_boardId, category) =>
       Promise.resolve(rows.filter((row) => row.category === category).length),
     countCards: (_boardId, columnId) => Promise.resolve(options.cardCounts?.[columnId] ?? 0),
@@ -115,6 +122,10 @@ function fakeColumns(initial: ColumnRecord[], options: FakeOptions = {}) {
       return Promise.resolve(rows.length < before);
     },
     setRanks,
+    recordActivity: (data) => {
+      activities.push(data);
+      return Promise.resolve(fakeActivityRecord(data));
+    },
   };
 
   /** Records transaction starts (a generic method cannot be wrapped by `vi.fn` directly). */
@@ -133,7 +144,7 @@ function fakeColumns(initial: ColumnRecord[], options: FakeOptions = {}) {
     },
   };
   const ordered = async () => (await store.listForBoard('board-1')).map((row) => row.id);
-  return { repository, store, locks, transaction, setRanks, ordered };
+  return { repository, store, locks, transaction, setRanks, ordered, activities };
 }
 
 const as = (role: BoardRole): BoardMembership => ({ boardId: 'board-1', userId: 'u1', role });
@@ -453,13 +464,73 @@ describe('ColumnService events', () => {
     await service.delete(as('MEMBER'), 'a', origin);
 
     const meta = { boardId: 'board-1', actorId: 'u1' };
-    expect(events.events).toEqual([
+    expect(events.events.filter((event) => event.name !== 'activity:created')).toEqual([
       { name: 'column:created', payload: { ...meta, column: created }, origin },
       { name: 'column:updated', payload: { ...meta, column: renamed }, origin },
       { name: 'column:moved', payload: { ...meta, column: moved }, origin },
       { name: 'column:updated', payload: { ...meta, column: updated }, origin },
       { name: 'column:deleted', payload: { ...meta, columnId: 'a' }, origin },
     ]);
+    // Each change is followed by its activity entry, which is published without an origin.
+    expect(events.events.map((event) => [event.name, event.origin])).toEqual(
+      [
+        'column:created',
+        'column:updated',
+        'column:moved',
+        'column:updated',
+        'column:deleted',
+      ].flatMap((name) => [
+        [name, origin],
+        ['activity:created', undefined],
+      ]),
+    );
+    const activities = events.events.flatMap((event) =>
+      event.name === 'activity:created' ? [event.payload.activity] : [],
+    );
+    expect(activities.map((activity) => activitySchema.parse(activity).type)).toEqual([
+      'COLUMN_CREATED',
+      'COLUMN_RENAMED',
+      'COLUMN_MOVED',
+      'COLUMN_SETTINGS_CHANGED',
+      'COLUMN_DELETED',
+    ]);
+    expect(activities[1]?.payload).toEqual({
+      column: { id: 'b', name: 'Renamed' },
+      name: { from: 'B', to: 'Renamed' },
+    });
+    expect(activities[3]?.payload).toEqual({
+      column: { id: 'c', name: 'C' },
+      changes: { wipLimit: { from: null, to: 2 } },
+    });
+  });
+
+  it('records no activity for changes that keep the same values', async () => {
+    const events = createRecordingBoardEvents();
+    const fake = fakeColumns(defaults());
+    const service = createColumnService({ columns: fake.repository, events });
+
+    await service.rename(as('MEMBER'), 'b', { title: 'B' });
+    await service.updateSettings(as('ADMIN'), 'c', { category: 'IN_PROGRESS', wipStrict: false });
+    await service.move(as('MEMBER'), 'b', { afterId: 'a' });
+
+    expect(fake.activities).toEqual([]);
+    expect(events.events.map((event) => event.name)).toEqual([
+      'column:updated',
+      'column:updated',
+      'column:moved',
+    ]);
+  });
+
+  it('keeps only the activity entry of the committed attempt after a rank collision', async () => {
+    const events = createRecordingBoardEvents();
+    const fake = fakeColumns(defaults(), { collisions: 2 });
+    const service = createColumnService({ columns: fake.repository, events });
+
+    await service.create(as('MEMBER'), { title: 'New' });
+
+    // Collisions happen before the entry is written, so only the committed attempt writes one.
+    expect(fake.activities).toHaveLength(1);
+    expect(events.events.filter((event) => event.name === 'activity:created')).toHaveLength(1);
   });
 
   it('announces a rebalance with the new ranks before the created column', async () => {
@@ -476,6 +547,7 @@ describe('ColumnService events', () => {
     expect(events.events.map((event) => event.name)).toEqual([
       'columns:rebalanced',
       'column:created',
+      'activity:created',
     ]);
     const [rebalance] = events.events;
     if (rebalance?.name !== 'columns:rebalanced') throw new Error('expected a rebalance first');

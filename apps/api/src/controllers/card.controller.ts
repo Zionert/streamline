@@ -11,7 +11,11 @@ import type { Request, Response } from 'express';
 import { NotFoundError } from '../errors/app-error.js';
 import { getBoardMembership } from '../middleware/require-board-permission.js';
 import { CARD_NOT_FOUND_MESSAGE, type CardService } from '../services/card.service.js';
+import { labelNotFound } from '../services/label.service.js';
 import { changeOrigin } from './change-origin.js';
+import { routeParam } from './params.js';
+
+const labelId = (req: Request): string => routeParam(req, 'labelId', labelNotFound);
 
 function cardId(req: Request): string {
   const { cardId: id } = req.params;
@@ -64,6 +68,26 @@ export function createCardController(cardService: CardService) {
     remove: async (req: Request, res: Response): Promise<void> => {
       await cardService.delete(getBoardMembership(res), cardId(req), changeOrigin(req));
       res.status(204).end();
+    },
+
+    attachLabel: async (req: Request, res: Response<CardResponse>): Promise<void> => {
+      const card = await cardService.attachLabel(
+        getBoardMembership(res),
+        cardId(req),
+        labelId(req),
+        changeOrigin(req),
+      );
+      res.json({ card });
+    },
+
+    detachLabel: async (req: Request, res: Response<CardResponse>): Promise<void> => {
+      const card = await cardService.detachLabel(
+        getBoardMembership(res),
+        cardId(req),
+        labelId(req),
+        changeOrigin(req),
+      );
+      res.json({ card });
     },
   };
 }

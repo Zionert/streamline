@@ -1,10 +1,14 @@
 import type {
+  Activity,
+  ActivityContent,
   AuthResponse,
   Board,
   BoardMember,
   Card,
   Column,
   ColumnCards,
+  Comment,
+  Label,
   PublicUser,
 } from '@streamline/shared';
 
@@ -86,6 +90,7 @@ export function cardWith(
     priority: 'MEDIUM',
     assigneeId: null,
     dueDate: null,
+    labelIds: [],
     createdAt: TIMESTAMP,
     updatedAt: TIMESTAMP,
     ...overrides,
@@ -106,5 +111,45 @@ export function cardListFor(
         .filter((card) => card.columnId === column.id)
         .sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0)),
     })),
+  };
+}
+
+/** A label of board-1. */
+export function labelWith(overrides: Partial<Label> & Pick<Label, 'id' | 'name'>): Label {
+  return {
+    boardId: 'board-1',
+    color: 'GREEN',
+    createdAt: TIMESTAMP,
+    updatedAt: TIMESTAMP,
+    ...overrides,
+  };
+}
+
+/** A comment on a card of board-1, written by the test user unless overridden. */
+export function commentWith(
+  overrides: Partial<Comment> & Pick<Comment, 'id' | 'cardId' | 'createdAt'>,
+): Comment {
+  return {
+    boardId: 'board-1',
+    author: { id: testUser.id, name: testUser.name },
+    body: `Comment ${overrides.id}`,
+    updatedAt: overrides.createdAt,
+    editedAt: null,
+    ...overrides,
+  };
+}
+
+/** An activity entry of board-1 made by the test user unless overridden. */
+export function activityWith(
+  content: ActivityContent,
+  overrides: Partial<Omit<Activity, 'type' | 'payload'>> & { id: string },
+): Activity {
+  return {
+    boardId: 'board-1',
+    cardId: null,
+    actor: { id: testUser.id, name: testUser.name },
+    createdAt: TIMESTAMP,
+    ...content,
+    ...overrides,
   };
 }

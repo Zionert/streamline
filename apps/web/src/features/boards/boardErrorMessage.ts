@@ -1,4 +1,12 @@
-import { BOARD_ERROR_CODES, CARD_ERROR_CODES, COLUMN_ERROR_CODES } from '@streamline/shared';
+import {
+  BOARD_ERROR_CODES,
+  CARD_ERROR_CODES,
+  COLUMN_ERROR_CODES,
+  COMMENT_ERROR_CODES,
+  LABEL_ERROR_CODES,
+  LABELS_PER_BOARD_MAX,
+  LABELS_PER_CARD_MAX,
+} from '@streamline/shared';
 import { isAxiosError } from 'axios';
 
 import { getApiErrorInfo } from '@/lib/api-error';
@@ -6,7 +14,7 @@ import { getApiErrorInfo } from '@/lib/api-error';
 const NETWORK_ERROR = 'Unable to reach the server. Please try again.';
 const UNKNOWN_ERROR = 'Something went wrong. Please try again.';
 
-/** Messages for domain error codes of the board, member, column and card endpoints. */
+/** Messages for domain error codes of the board, member, column, card, label and comment endpoints. */
 const CODE_MESSAGES: Readonly<Record<string, string>> = {
   [BOARD_ERROR_CODES.USER_NOT_FOUND]: 'No registered user has this email address.',
   [BOARD_ERROR_CODES.ALREADY_MEMBER]: 'This user is already a member of the board.',
@@ -22,6 +30,13 @@ const CODE_MESSAGES: Readonly<Record<string, string>> = {
   [COLUMN_ERROR_CODES.COLUMN_NOT_EMPTY]: 'Move or delete the cards in this column first.',
   [CARD_ERROR_CODES.WIP_LIMIT_EXCEEDED]: 'This column has reached its WIP limit.',
   [CARD_ERROR_CODES.ASSIGNEE_NOT_MEMBER]: 'The assignee must be a member of this board.',
+  [LABEL_ERROR_CODES.LABEL_NAME_TAKEN]: 'A label with this name already exists on this board.',
+  [LABEL_ERROR_CODES.LABEL_LIMIT_REACHED]: `A board can have at most ${String(LABELS_PER_BOARD_MAX)} labels. Delete a label first.`,
+  [LABEL_ERROR_CODES.CARD_LABEL_LIMIT_REACHED]: `A card can have at most ${String(LABELS_PER_CARD_MAX)} labels. Remove a label first.`,
+  [LABEL_ERROR_CODES.LABEL_NOT_FOUND]: 'This label no longer exists. It may have been deleted.',
+  [COMMENT_ERROR_CODES.COMMENT_NOT_FOUND]:
+    'This comment no longer exists. It may have been deleted.',
+  [COMMENT_ERROR_CODES.COMMENT_FORBIDDEN]: 'You can only change your own comments.',
   FORBIDDEN: 'You do not have permission to do this.',
   NOT_FOUND: 'It no longer exists. It may have been deleted.',
 };

@@ -10,6 +10,7 @@ import {
   type BoardRole,
   type Card,
   type Column,
+  wipLimitExceededDetailsSchema,
 } from '@streamline/shared';
 import type { Express } from 'express';
 import request, { type Response, type Test } from 'supertest';
@@ -866,6 +867,61 @@ describe('WIP limits', () => {
     expect((await createCard(fx.cols.todo.id, 'Next')).number).toBe(3);
   });
 
+  it('names the full column and its limit in the error details', async () => {
+    await setWip(fx.cols.inProgress.id, 1, true);
+    await createCard(fx.cols.inProgress.id, 'Busy');
+    const card = await createCard(fx.cols.todo.id, 'Waiting');
+    const expected = {
+      columnId: fx.cols.inProgress.id,
+      columnName: fx.cols.inProgress.title,
+      wipLimit: 1,
+    };
+
+    const moved = await moveCard(card.id, { columnId: fx.cols.inProgress.id });
+    const created = await owner(request(app).post(cardsPath())).send({
+      columnId: fx.cols.inProgress.id,
+      title: 'More',
+    });
+
+    for (const response of [moved, created]) {
+      expectStatus(response, 409, 'WIP_LIMIT_EXCEEDED');
+      const { details } = errorResponseSchema.parse(response.body).error;
+      expect(wipLimitExceededDetailsSchema.parse(details)).toEqual(expected);
+    }
+  });
+
+  it('allows lowering a strict limit below the current count, then blocks only new entries', async () => {
+    const one = await createCard(fx.cols.inProgress.id, 'One');
+    await createCard(fx.cols.inProgress.id, 'Two');
+    await createCard(fx.cols.inProgress.id, 'Three');
+    const waiting = await createCard(fx.cols.todo.id, 'Waiting');
+
+    const lowered = await owner(
+      request(app).patch(`/boards/${fx.boardId}/columns/${fx.cols.inProgress.id}/settings`),
+    ).send({ wipLimit: 1, wipStrict: true });
+    expectStatus(lowered, 200);
+    expect(await titlesIn(fx.cols.inProgress.id)).toEqual(['One', 'Two', 'Three']);
+
+    expectStatus(
+      await moveCard(waiting.id, { columnId: fx.cols.inProgress.id }),
+      409,
+      'WIP_LIMIT_EXCEEDED',
+    );
+    // Reordering inside and leaving the over-full column stay possible.
+    expectStatus(await moveCard(one.id, { columnId: fx.cols.inProgress.id }), 200);
+    expectStatus(await moveCard(one.id, { columnId: fx.cols.done.id }), 200);
+    expect(await titlesIn(fx.cols.inProgress.id)).toEqual(['Two', 'Three']);
+  });
+
+  it('allows moving within a strict column that is exactly at its limit', async () => {
+    const one = await createCard(fx.cols.inProgress.id, 'One');
+    await createCard(fx.cols.inProgress.id, 'Two');
+    await setWip(fx.cols.inProgress.id, 2, true);
+
+    expectStatus(await moveCard(one.id, { columnId: fx.cols.inProgress.id }), 200);
+    expect(await titlesIn(fx.cols.inProgress.id)).toEqual(['Two', 'One']);
+  });
+
   it('lets a non-strict limit be exceeded', async () => {
     await setWip(fx.cols.inProgress.id, 1, false);
     await createCard(fx.cols.inProgress.id, 'One');
@@ -1108,7 +1164,9 @@ describe('membership changes', () => {
         WHERE "boardId" = ${fx.boardId} AND "userId" = ${fx.users.MEMBER.id} FOR SHARE`;
 
       await expect(
-        members.removeUnlessOwner(fx.boardId, fx.users.MEMBER.id),
+        members.removeUnlessOwner(fx.boardId, fx.users.MEMBER.id, () => {
+          throw new Error('The member must not be removed');
+        }),
       ).rejects.toBeInstanceOf(BoardBusyError);
     });
     expect(await db.boardMember.count({ where: { userId: fx.users.MEMBER.id } })).toBe(1);

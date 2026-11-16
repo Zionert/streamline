@@ -1,5 +1,5 @@
 import { DragDropContext, Draggable, Droppable, type DropResult } from '@hello-pangea/dnd';
-import type { Card, Column } from '@streamline/shared';
+import type { Card, Column, Label } from '@streamline/shared';
 
 import type { AvatarStackPerson } from '@/components/ui/avatar';
 import { getCardMove } from '@/features/cards/cardDrag';
@@ -30,6 +30,7 @@ export interface BoardColumnsProps {
   /** Cards cannot be dragged (a move being saved, or an active filter). */
   isCardDragDisabled: boolean;
   membersById: ReadonlyMap<string, AvatarStackPerson>;
+  labelsById: ReadonlyMap<string, Label>;
   onMoveCard: (cardId: string, toColumnId: string, toIndex: number) => void;
   onOpenCard: (card: Card) => void;
 }
@@ -50,6 +51,7 @@ export function BoardColumns({
   canWriteCards,
   isCardDragDisabled,
   membersById,
+  labelsById,
   onMoveCard,
   onOpenCard,
 }: BoardColumnsProps) {
@@ -106,6 +108,7 @@ export function BoardColumns({
                         canWriteCards={canWriteCards}
                         isCardDragDisabled={isCardDragDisabled}
                         membersById={membersById}
+                        labelsById={labelsById}
                         onOpenCard={onOpenCard}
                         isCardHidden={isCardHidden}
                         dragHandleProps={canWrite ? draggableProvided.dragHandleProps : null}

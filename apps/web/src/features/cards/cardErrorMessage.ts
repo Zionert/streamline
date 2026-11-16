@@ -1,4 +1,4 @@
-import { CARD_ERROR_CODES } from '@streamline/shared';
+import { CARD_ERROR_CODES, wipLimitExceededDetailsSchema } from '@streamline/shared';
 
 import { getBoardErrorMessage } from '@/features/boards/boardErrorMessage';
 import { getApiErrorInfo } from '@/lib/api-error';
@@ -14,9 +14,20 @@ const CARD_CODE_MESSAGES: Readonly<Record<string, string>> = {
   NOT_FOUND: 'This card no longer exists. It may have been deleted.',
 };
 
+/** Explains why a card cannot enter a full column with a strict WIP limit. */
+export function wipLimitMessage(columnName: string, wipLimit: number): string {
+  return `Column "${columnName}" is at its WIP limit (${String(wipLimit)}). Move a card out first.`;
+}
+
 /** User-facing message for a failed card request. */
 export function getCardErrorMessage(error: unknown): string {
-  const { code } = getApiErrorInfo(error);
+  const { code, details } = getApiErrorInfo(error);
+  if (code === CARD_ERROR_CODES.WIP_LIMIT_EXCEEDED) {
+    const parsed = wipLimitExceededDetailsSchema.safeParse(details);
+    if (parsed.success) {
+      return wipLimitMessage(parsed.data.columnName, parsed.data.wipLimit);
+    }
+  }
   const known = code === undefined ? undefined : CARD_CODE_MESSAGES[code];
   return known ?? getBoardErrorMessage(error);
 }

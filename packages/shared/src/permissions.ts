@@ -58,3 +58,27 @@ export function canManageMember(actorRole: BoardRole, targetRole: BoardRole): bo
 export function canLeaveBoard(role: BoardRole): boolean {
   return role !== 'OWNER';
 }
+
+/** The member asking to change a comment. */
+export interface CommentActor {
+  userId: string;
+  role: BoardRole;
+}
+
+/** The comment being changed; `authorId` is `null` when the author's account no longer exists. */
+export interface CommentOwnership {
+  authorId: string | null;
+}
+
+/** Only the author may edit a comment, and only while their role still allows writing cards. */
+export function canEditComment(actor: CommentActor, comment: CommentOwnership): boolean {
+  return comment.authorId === actor.userId && hasBoardPermission(actor.role, 'card:write');
+}
+
+/**
+ * The author may delete their comment while their role allows writing cards; managers (OWNER,
+ * ADMIN) may delete any comment of the board.
+ */
+export function canDeleteComment(actor: CommentActor, comment: CommentOwnership): boolean {
+  return canEditComment(actor, comment) || MANAGERS.includes(actor.role);
+}
