@@ -11,7 +11,6 @@ import {
   ECHOED_BOARD_EVENTS,
   isEchoSuppressed,
   parseBoardEvent,
-  presenceUpdateEventSchema,
   userRoom,
 } from './events.js';
 
@@ -40,14 +39,11 @@ describe('WS_EVENTS', () => {
     }
   });
 
-  it('has a payload schema for every room event except presence and access revocation', () => {
+  it('has a payload schema for every room event except access revocation', () => {
     const withoutSchema = Object.values(WS_EVENTS).filter(
       (name) => !(BOARD_EVENT_NAMES as readonly string[]).includes(name),
     );
-    expect(withoutSchema.sort()).toEqual([
-      WS_EVENTS.BOARD_ACCESS_REVOKED,
-      WS_EVENTS.PRESENCE_UPDATE,
-    ]);
+    expect(withoutSchema).toEqual([WS_EVENTS.BOARD_ACCESS_REVOKED]);
   });
 });
 
@@ -81,7 +77,7 @@ describe('parseBoardEvent', () => {
   });
 
   it('returns null for unknown events and malformed payloads', () => {
-    expect(parseBoardEvent('presence:update', { boardId: 'b1', users: [] })).toBeNull();
+    expect(parseBoardEvent('board:access-revoked', { boardId: 'b1' })).toBeNull();
     expect(parseBoardEvent('toString', {})).toBeNull();
     expect(parseBoardEvent('column:moved', { boardId: 'b1', actorId: 'u1' })).toBeNull();
   });
@@ -111,19 +107,13 @@ describe('event payload schemas', () => {
     expect(parsed.board).toEqual(board);
   });
 
-  it('validates presence updates and join acknowledgements', () => {
-    expect(presenceUpdateEventSchema.safeParse({ boardId: 'b1', users: [user] }).success).toBe(
-      true,
-    );
-    expect(boardJoinAckSchema.parse({ ok: true, presence: [user] })).toEqual({
-      ok: true,
-      presence: [user],
-    });
+  it('validates join acknowledgements', () => {
+    expect(boardJoinAckSchema.parse({ ok: true })).toEqual({ ok: true });
     expect(
       boardJoinAckSchema.safeParse({ ok: false, error: { code: 'NOT_FOUND', message: 'x' } })
         .success,
     ).toBe(true);
-    expect(boardJoinAckSchema.safeParse({ ok: true }).success).toBe(false);
+    expect(boardJoinAckSchema.safeParse({ ok: false }).success).toBe(false);
   });
 });
 

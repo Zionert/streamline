@@ -64,7 +64,7 @@ async function renderBoard(
     });
   }
   const result = renderApp(path);
-  await screen.findByRole('heading', { level: 1, name: 'Board', hidden: true });
+  await screen.findByRole('heading', { level: 1, name: 'Sprint board', hidden: true });
   return result;
 }
 
@@ -82,14 +82,16 @@ const labelIdsOf = (cardId: string) =>
     .find((card) => card.id === cardId)?.labelIds;
 
 describe('labels on card tiles', () => {
-  it('shows the labels of a card as coloured pills', async () => {
+  it('shows the labels of a card as a coloured dot and the name', async () => {
     await renderBoard();
 
     const tile = await screen.findByRole('button', { name: /^SB-1 Fix login.*labels Bug$/ });
-    const pill = within(tile).getByText('Bug');
-    expect(pill).toHaveAttribute('data-label-color', 'RED');
-    expect(pill.getAttribute('style')).toContain('var(--label-red-bg)');
-    expect(pill).toHaveClass('truncate');
+    const label = within(tile).getByTestId('card-label');
+    expect(label).toHaveTextContent('Bug');
+    expect(within(label).getByText('Bug')).toHaveClass('truncate');
+    const dot = label.querySelector('[data-label-color]');
+    expect(dot).toHaveAttribute('data-label-color', 'RED');
+    expect(dot?.getAttribute('style')).toContain('var(--label-red-dot)');
     expect(
       within(screen.getByRole('button', { name: /^SB-2 / })).queryByTestId('card-labels'),
     ).toBeNull();

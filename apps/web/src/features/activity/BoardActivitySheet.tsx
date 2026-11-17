@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, type RefObject } from 'react';
 
 import {
   Sheet,
@@ -17,13 +17,20 @@ interface BoardActivitySheetProps {
   boardId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Receives focus when the panel closes (the control the panel was opened from). */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 /**
  * The board's activity in a panel on the right (full width on small screens): newest first,
  * page by page, with new entries arriving live while it is open.
  */
-export function BoardActivitySheet({ boardId, open, onOpenChange }: BoardActivitySheetProps) {
+export function BoardActivitySheet({
+  boardId,
+  open,
+  onOpenChange,
+  returnFocusRef,
+}: BoardActivitySheetProps) {
   const items = useBoardActivityStore((state) => state.items);
   const status = useBoardActivityStore((state) => state.status);
   const error = useBoardActivityStore((state) => state.error);
@@ -51,7 +58,14 @@ export function BoardActivitySheet({ boardId, open, onOpenChange }: BoardActivit
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent>
+      <SheetContent
+        onCloseAutoFocus={(event) => {
+          if (returnFocusRef?.current) {
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }
+        }}
+      >
         <SheetHeader>
           <SheetTitle>Activity</SheetTitle>
           <SheetDescription>Recent changes on this board, newest first.</SheetDescription>

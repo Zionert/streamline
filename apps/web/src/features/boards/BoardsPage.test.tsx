@@ -37,9 +37,8 @@ describe('BoardsPage', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/boards'));
     expect(await screen.findByText("You don't have any boards yet")).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'Your boards' })).toBeVisible();
-    expect(
-      within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Boards'),
-    ).toHaveAttribute('aria-current', 'page');
+    // Board views belong to board pages only.
+    expect(screen.queryByRole('navigation', { name: 'Board views' })).toBeNull();
   });
 
   it('shows an empty state whose button opens the create dialog', async () => {
@@ -60,6 +59,9 @@ describe('BoardsPage', () => {
     expect(within(boardItem('Product roadmap')).getByText('Owner')).toBeInTheDocument();
     expect(within(boardItem('Marketing')).getByText('Admin')).toBeInTheDocument();
     expect(within(boardItem('Company wiki')).getByText('Viewer')).toBeInTheDocument();
+    expect(
+      within(boardItem('Product roadmap')).getByText('Board key:').parentElement,
+    ).toHaveTextContent('Board key:SB');
     expect(screen.getByRole('link', { name: 'Product roadmap' })).toHaveAttribute(
       'href',
       '/boards/b-own',

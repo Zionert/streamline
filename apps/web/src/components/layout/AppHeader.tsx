@@ -14,26 +14,38 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { logout } from '@/features/auth/authApi';
 import { HOME_PATH, LOGIN_PATH } from '@/features/auth/redirect';
+import { BoardHeaderMembers, BoardHeaderNav } from '@/features/boards/BoardHeaderNav';
+import { useCurrentBoard } from '@/features/boards/useCurrentBoard';
 import { useAuthStore } from '@/stores/auth';
 
 import { Logo } from './Logo';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
-/** Top bar of the authenticated app: logo, theme and the account menu. */
+/**
+ * Top bar of the authenticated app: logo, on board pages the board name, view tabs and members,
+ * then the theme and the account menu.
+ */
 export function AppHeader() {
+  const board = useCurrentBoard();
+
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-surface px-4">
-      <nav aria-label="Main">
-        <Link
-          to={HOME_PATH}
-          aria-label="StreamLine, your boards"
-          className="flex items-center rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          <Logo />
-        </Link>
-      </nav>
-      <div className="flex items-center gap-1">
+    <header className="flex h-[52px] shrink-0 items-center justify-between gap-4 border-b border-border bg-canvas px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <nav aria-label="Main" className="shrink-0">
+          <Link
+            to={HOME_PATH}
+            aria-label="StreamLine, your boards"
+            className="flex items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <Logo />
+          </Link>
+        </nav>
+        {/* Keyed by board, so the panels opened from the tabs never carry over to another board. */}
+        {board && <BoardHeaderNav key={board.id} board={board} />}
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
         <ThemeSwitcher />
+        {board && <BoardHeaderMembers />}
         <UserMenu />
       </div>
     </header>
@@ -59,11 +71,11 @@ function UserMenu() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="ml-1 rounded-full"
+          size="icon-sm"
+          className="rounded-full"
           aria-label={`Account menu for ${user.name}`}
         >
-          <Avatar userId={user.id} name={user.name} aria-hidden="true" />
+          <Avatar userId={user.id} name={user.name} size="compact" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">

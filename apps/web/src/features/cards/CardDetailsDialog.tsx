@@ -4,7 +4,7 @@ import {
   type Card,
   type UpdateCardInput,
 } from '@streamline/shared';
-import { History, Link2, MessageSquare, SquareCheck, Trash2, X } from 'lucide-react';
+import { History, Link2, MessageSquare, Trash2, X } from 'lucide-react';
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
@@ -32,6 +32,10 @@ import { formatCalendarDate, formatDateTime } from './format';
 import { PRIORITY_LABELS } from './cardLabels';
 import { PriorityFlag } from './priority';
 
+/** Field labels of the details: monospace 11 px capitals in the muted text colour. */
+const FIELD_LABEL_CLASS =
+  'font-mono text-[11px] font-normal tracking-[0.06em] text-muted uppercase';
+
 /** Toast ids: a newer message of the same kind replaces the previous one. */
 const SAVE_ERROR_TOAST_ID = 'card-save-error';
 const COPY_LINK_TOAST_ID = 'card-copy-link';
@@ -42,7 +46,7 @@ interface CardDetailsDialogProps {
 }
 
 /**
- * Details of a card (DESIGN: modal, two columns). Every field is saved on its own, sending only
+ * Details of a card in a modal with two columns. Every field is saved on its own, sending only
  * the changed field; members without `card:write` see the fields read-only.
  */
 export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
@@ -120,33 +124,33 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
         <DialogTitle className="sr-only">
           {card.key} {card.title}
         </DialogTitle>
-        <div className="flex items-center gap-2 border-b px-6 py-3">
-          <SquareCheck aria-hidden="true" className="size-4 text-primary" strokeWidth={2} />
-          <span className="text-xs font-semibold text-subtle">{card.key}</span>
-          <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={() => void copyLink()}>
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-3">
+          <span className="font-mono text-xs text-subtle">{card.key}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="subtle" size="sm" onClick={() => void copyLink()}>
               <Link2 strokeWidth={2} />
               Copy link
             </Button>
             {canWrite && (
               <Button
                 ref={deleteButton}
-                variant="ghost"
+                variant="subtle"
                 size="sm"
-                className="text-destructive hover:text-destructive"
+                className="text-destructive"
                 onClick={() => setIsDeleting(true)}
               >
                 <Trash2 strokeWidth={2} />
                 Delete
               </Button>
             )}
-            <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}>
+            <Button variant="subtle" size="sm" onClick={onClose}>
               <X strokeWidth={2} />
+              Close
             </Button>
           </div>
         </div>
-        <div className="grid gap-6 p-6 md:grid-cols-[65fr_35fr]">
-          <div className="flex min-w-0 flex-col gap-4">
+        <div className="grid md:grid-cols-[65fr_35fr]">
+          <div className="flex min-w-0 flex-col gap-4 p-6">
             {canWrite ? (
               <TitleField key={card.title} title={card.title} onSave={(title) => save({ title })} />
             ) : (
@@ -187,8 +191,8 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
               </TabsContent>
             </Tabs>
           </div>
-          <div className="flex min-w-0 flex-col gap-4 text-sm">
-            <dl className="flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col border-t border-border p-6 text-sm md:border-t-0 md:border-l">
+            <dl className="flex flex-col gap-3">
               <Field label="Status" htmlFor={ids.status}>
                 <NativeSelect
                   id={ids.status}
@@ -223,7 +227,7 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
               </Field>
               <Field label="Priority" htmlFor={ids.priority}>
                 <div className="flex items-center gap-2">
-                  <PriorityFlag priority={card.priority} />
+                  <PriorityFlag priority={card.priority} showLabel={false} />
                   <NativeSelect
                     id={ids.priority}
                     value={card.priority}
@@ -255,11 +259,13 @@ export function CardDetailsDialog({ card, onClose }: CardDetailsDialogProps) {
                   <p>{card.dueDate ? formatCalendarDate(card.dueDate) : 'No due date'}</p>
                 </Field>
               )}
+              <Field label="Created">
+                <p className="font-mono text-xs text-subtle">{formatDateTime(card.createdAt)}</p>
+              </Field>
+              <Field label="Updated">
+                <p className="font-mono text-xs text-subtle">{formatDateTime(card.updatedAt)}</p>
+              </Field>
             </dl>
-            <div className="flex flex-col gap-1 border-t pt-4 text-xs text-subtle">
-              <p>Created {formatDateTime(card.createdAt)}</p>
-              <p>Updated {formatDateTime(card.updatedAt)}</p>
-            </div>
           </div>
         </div>
         {canWrite && (
@@ -298,17 +304,18 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <dt id={labelId} className="text-xs font-semibold text-subtle">
+    // Label and value side by side; stacked when the details are a single narrow column.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5 sm:grid-cols-[84px_minmax(0,1fr)] sm:items-center sm:gap-3">
+      <dt id={labelId} className={FIELD_LABEL_CLASS}>
         {htmlFor ? (
-          <Label htmlFor={htmlFor} className="text-xs font-semibold text-subtle">
+          <Label htmlFor={htmlFor} className={FIELD_LABEL_CLASS}>
             {label}
           </Label>
         ) : (
           label
         )}
       </dt>
-      <dd>{children}</dd>
+      <dd className="min-w-0">{children}</dd>
     </div>
   );
 }
@@ -462,7 +469,7 @@ function DescriptionField({ description, readOnly, onSave }: DescriptionFieldPro
   if (readOnly) {
     return (
       <section className="flex flex-col gap-1.5">
-        <h3 className="text-xs font-semibold text-subtle">Description</h3>
+        <h3 className={FIELD_LABEL_CLASS}>Description</h3>
         <p className={cn('text-sm whitespace-pre-wrap break-words', !description && 'text-subtle')}>
           {description ?? 'No description'}
         </p>
@@ -472,7 +479,7 @@ function DescriptionField({ description, readOnly, onSave }: DescriptionFieldPro
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={fieldId} className="text-xs font-semibold text-subtle">
+      <Label htmlFor={fieldId} className={FIELD_LABEL_CLASS}>
         Description
       </Label>
       <Textarea

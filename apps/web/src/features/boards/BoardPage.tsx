@@ -4,32 +4,28 @@ import {
   type BoardMember,
   type Card,
   type Label,
-  type PresenceUser,
 } from '@streamline/shared';
-import { ArrowUpDown, History, PanelLeft, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Plus, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 
-import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BoardActivitySheet } from '@/features/activity/BoardActivitySheet';
 import { isFilterActive, type CardFilter } from '@/features/cards/cardFilter';
 import { LabelFilter } from '@/features/labels/LabelFilter';
-import { BoardPresence } from '@/features/realtime/BoardPresence';
 import { useBoardRealtime } from '@/features/realtime/useBoardRealtime';
-import { MOBILE_SCREEN_QUERY, useMediaQuery } from '@/hooks/useMediaQuery';
 import { useBoardStore } from '@/stores/board';
 
 import { AddColumnGhost } from './AddColumnForm';
+import { BoardActionsMenu } from './BoardActionsMenu';
+import type { ColumnComposerHandle } from './BoardColumn';
 import { BoardColumns } from './BoardColumns';
-import { BOARD_SIDEBAR_ID, BoardSidebar } from './BoardSidebar';
-import { MembersDialog } from './MembersDialog';
+import { newCardColumn } from './newCardColumn';
 import { BOARDS_PATH, cardPath, type CardLocationState } from './paths';
-import { useSidebarState } from './sidebarState';
 
 /** Toast id of the board notice: a newer notice replaces the previous one, like a banner. */
 const NOTICE_TOAST_ID = 'board-notice';
@@ -54,9 +50,12 @@ export function BoardPage() {
   if (status === 'not-found' && openedId === boardId) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-        <h1 className="text-2xl font-semibold">Board not found</h1>
+        <h1 className="text-[22px] font-semibold tracking-[-0.02em]">Board not found</h1>
         <p className="text-subtle">This board does not exist or you are not a member of it.</p>
-        <Link to={BOARDS_PATH} className="text-primary underline-offset-4 hover:underline">
+        <Link
+          to={BOARDS_PATH}
+          className="rounded-sm text-primary-text underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        >
           Back to your boards
         </Link>
       </main>
@@ -87,18 +86,20 @@ export function BoardPage() {
 
 function BoardSkeleton() {
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 px-6 pt-4">
-      <div role="status" className="flex min-h-0 flex-1 flex-col gap-3">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div role="status" className="flex min-h-0 flex-1 flex-col">
         <span className="sr-only">Loading board...</span>
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-7 w-24" />
-        <Skeleton className="h-8 w-[200px]" />
-        <div className="flex min-h-0 flex-1 gap-3 overflow-hidden pb-4">
+        <div className="flex items-center gap-2 px-6 py-4">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-5 w-10" />
+          <Skeleton className="ml-auto h-9 w-[220px]" />
+        </div>
+        <div className="flex min-h-0 flex-1 gap-4 overflow-hidden px-6 pb-6">
           {[0, 1, 2, 3].map((index) => (
             <Skeleton
               key={index}
               data-testid="column-skeleton"
-              className="h-full max-h-96 w-[280px] shrink-0 rounded-column"
+              className="h-full max-h-96 w-[300px] shrink-0 rounded-lg"
             />
           ))}
         </div>
@@ -115,20 +116,15 @@ function BoardView({ board }: { board: Board }) {
   const cardsStatus = useBoardStore((state) => state.cardsStatus);
   const isMovingCard = useBoardStore((state) => state.isMovingCard);
   const notice = useBoardStore((state) => state.notice);
-  const presence = useBoardStore((state) => state.presence);
   const labels = useBoardStore((state) => state.labels);
   const moveColumn = useBoardStore((state) => state.moveColumn);
   const moveCard = useBoardStore((state) => state.moveCard);
   const reloadCards = useBoardStore((state) => state.reloadCards);
   const dismissNotice = useBoardStore((state) => state.dismissNotice);
   const navigate = useNavigate();
-  const [isMembersOpen, setIsMembersOpen] = useState(false);
-  const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [filterText, setFilterText] = useState('');
   const [activeMemberIds, setActiveMemberIds] = useState<ReadonlySet<string>>(() => new Set());
   const [selectedLabelIds, setSelectedLabelIds] = useState<ReadonlySet<string>>(() => new Set());
-  const isMobile = useMediaQuery(MOBILE_SCREEN_QUERY);
-  const sidebar = useSidebarState(isMobile);
   const canWrite = hasBoardPermission(board.role, 'column:write');
   const canEditSettings = hasBoardPermission(board.role, 'column:settings');
   const canWriteCards = hasBoardPermission(board.role, 'card:write');
@@ -179,51 +175,58 @@ function BoardView({ board }: { board: Board }) {
     }
   }, [notice, dismissNotice]);
 
+  const leaveDeletedBoard = async () => {
+    await navigate(BOARDS_PATH, { replace: true });
+  };
+
+  // "New card" opens the quick composer of its target column, exactly like that column's "+".
+  const composers = useRef(new Map<string, ColumnComposerHandle>());
+  const registerComposer = useCallback((columnId: string, handle: ColumnComposerHandle | null) => {
+    if (handle) {
+      composers.current.set(columnId, handle);
+    } else {
+      composers.current.delete(columnId);
+    }
+  }, []);
+  const newCardTarget = newCardColumn(columns);
+  const startNewCard =
+    canWriteCards && newCardTarget
+      ? () => composers.current.get(newCardTarget.id)?.openComposer()
+      : null;
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <BoardSidebar
-        board={board}
-        isMobile={isMobile}
-        collapsed={sidebar.collapsed}
-        onToggleCollapsed={sidebar.toggleCollapsed}
-        drawerOpen={sidebar.drawerOpen}
-        onDrawerOpenChange={sidebar.setDrawerOpen}
-        onOpenMembers={() => setIsMembersOpen(true)}
-      />
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 px-6 pt-4">
-        <div className="flex min-w-0 items-center gap-2">
-          {isMobile && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Open board navigation"
-              aria-expanded={sidebar.drawerOpen}
-              aria-controls={BOARD_SIDEBAR_ID}
-              onClick={() => sidebar.setDrawerOpen(true)}
-            >
-              <PanelLeft strokeWidth={2} />
-            </Button>
-          )}
-          <Breadcrumbs items={[{ label: 'Boards', to: BOARDS_PATH }, { label: board.name }]} />
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-6 py-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="min-w-0 truncate text-[22px] font-semibold tracking-[-0.02em]">
+              {board.name}
+            </h1>
+            <Badge className="px-2 py-0.5">
+              <span className="sr-only">Board key:</span>
+              {board.key}
+            </Badge>
+            <BoardActionsMenu board={board} label="Board actions" onDeleted={leaveDeletedBoard} />
+          </div>
+          <BoardToolbar
+            members={members}
+            filterText={filterText}
+            onFilterTextChange={setFilterText}
+            activeMemberIds={activeMemberIds}
+            onToggleMember={toggleMember}
+            labels={labels}
+            selectedLabelIds={activeLabelIds}
+            onToggleLabel={toggleLabel}
+            isFiltering={filtering}
+            onClearFilters={clearFilters}
+            onNewCard={startNewCard}
+          />
         </div>
-        <h1 className="text-2xl font-semibold">Board</h1>
-        <BoardToolbar
-          members={members}
-          filterText={filterText}
-          onFilterTextChange={setFilterText}
-          activeMemberIds={activeMemberIds}
-          onToggleMember={toggleMember}
-          labels={labels}
-          selectedLabelIds={activeLabelIds}
-          onToggleLabel={toggleLabel}
-          isFiltering={filtering}
-          onClearFilters={clearFilters}
-          showDragHint={filtering && canWriteCards}
-          presence={presence}
-          onOpenActivity={() => setIsActivityOpen(true)}
-        />
+        {filtering && canWriteCards && (
+          <p className="-mt-2 px-6 pb-3 text-xs text-subtle">Clear the filter to drag cards.</p>
+        )}
         {cardsStatus === 'error' && (
-          <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+          <div role="alert" className="flex items-center gap-3 px-6 pb-3 text-sm text-destructive">
             Could not load the cards.
             <Button variant="outline" size="sm" onClick={() => void reloadCards()}>
               Retry
@@ -232,7 +235,7 @@ function BoardView({ board }: { board: Board }) {
         )}
         {/* `relative` makes this scroller the containing block of visually hidden (absolute)
             labels inside columns; otherwise they escape it and widen the whole page. */}
-        <div className="relative flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-4">
+        <div className="relative flex min-h-0 flex-1 items-stretch gap-4 overflow-x-auto px-6 pb-6">
           <BoardColumns
             columns={columns}
             canWrite={canWrite}
@@ -249,22 +252,12 @@ function BoardView({ board }: { board: Board }) {
             labelsById={labelsById}
             onMoveCard={(cardId, toColumnId, toIndex) => void moveCard(cardId, toColumnId, toIndex)}
             onOpenCard={openCard}
+            onComposerRef={registerComposer}
           />
           {canWrite && <AddColumnGhost />}
         </div>
         {/* Card details: a modal route over the board. */}
         <Outlet />
-        <MembersDialog
-          boardName={board.name}
-          myRole={board.role}
-          open={isMembersOpen}
-          onOpenChange={setIsMembersOpen}
-        />
-        <BoardActivitySheet
-          boardId={board.id}
-          open={isActivityOpen}
-          onOpenChange={setIsActivityOpen}
-        />
       </main>
     </div>
   );
@@ -284,11 +277,8 @@ interface BoardToolbarProps {
   /** Any filter is active (offers clearing all of them). */
   isFiltering: boolean;
   onClearFilters: () => void;
-  /** Explains that dragging cards is paused while a filter is active. */
-  showDragHint: boolean;
-  /** Users currently viewing the board. */
-  presence: readonly PresenceUser[];
-  onOpenActivity: () => void;
+  /** Starts a new card; `null` hides the button (no `card:write`, or no column to add to). */
+  onNewCard: (() => void) | null;
 }
 
 /** Copy of the set with `value` added, or removed when it was there. */
@@ -300,7 +290,7 @@ function toggleInSet(set: ReadonlySet<string>, value: string): ReadonlySet<strin
   return next;
 }
 
-/** View-only card filters (text, assignees, labels) and the board's activity. */
+/** The view-only card filters (text, people, labels) and "New card". */
 function BoardToolbar({
   members,
   filterText,
@@ -312,16 +302,14 @@ function BoardToolbar({
   onToggleLabel,
   isFiltering,
   onClearFilters,
-  showDragHint,
-  presence,
-  onOpenActivity,
+  onNewCard,
 }: BoardToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="relative w-[200px]">
+    <div className="ml-auto flex flex-wrap items-center gap-3">
+      <div className="relative w-[220px]">
         <Search
           aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-subtle"
+          className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted"
           strokeWidth={2}
         />
         <Input
@@ -329,7 +317,7 @@ function BoardToolbar({
           aria-label="Filter cards"
           placeholder="Filter cards"
           value={filterText}
-          className="h-8 pl-8"
+          className="pl-8"
           onChange={(event) => onFilterTextChange(event.target.value)}
         />
       </div>
@@ -343,24 +331,18 @@ function BoardToolbar({
         />
       )}
       <LabelFilter labels={labels} selectedIds={selectedLabelIds} onToggle={onToggleLabel} />
-      <Button variant="subtle" size="sm" disabled title="Sorting is not available yet">
-        <ArrowUpDown strokeWidth={2} />
-        Sort
-      </Button>
       {isFiltering && (
-        <Button variant="ghost" size="sm" className="text-subtle" onClick={onClearFilters}>
+        <Button variant="ghost" size="sm" onClick={onClearFilters}>
           <X strokeWidth={2} />
           Clear filters
         </Button>
       )}
-      {showDragHint && <p className="text-xs text-subtle">Clear the filter to drag cards.</p>}
-      <div className="ml-auto flex items-center gap-3">
-        <BoardPresence users={presence} />
-        <Button variant="ghost" size="sm" className="text-subtle" onClick={onOpenActivity}>
-          <History strokeWidth={2} />
-          Activity
+      {onNewCard && (
+        <Button onClick={onNewCard}>
+          <Plus strokeWidth={2} />
+          New card
         </Button>
-      </div>
+      )}
     </div>
   );
 }

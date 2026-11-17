@@ -65,7 +65,7 @@ export function ActivityItem({
   const cardRef = (card: ActivityCard) => {
     const text = (
       <>
-        <span className="font-semibold">{currentCardKey ?? card.key}</span> {card.title}
+        <span className="font-mono text-xs">{currentCardKey ?? card.key}</span> {card.title}
       </>
     );
     if (currentCardKey === null || activity.cardId === null) {
@@ -76,7 +76,7 @@ export function ActivityItem({
       <Link
         to={cardPath(activity.boardId, currentCardKey)}
         state={state}
-        className="break-words text-primary underline-offset-4 hover:underline"
+        className="break-words text-primary-text underline-offset-4 hover:underline"
         onClick={onNavigate}
       >
         {text}
@@ -100,7 +100,7 @@ export function ActivityItem({
         <time
           dateTime={activity.createdAt}
           title={formatDateTime(activity.createdAt)}
-          className="text-xs text-subtle"
+          className="font-mono text-xs text-subtle"
         >
           {formatRelativeTime(activity.createdAt, now)}
         </time>
@@ -116,7 +116,7 @@ export function DeletedUserAvatar() {
       role="img"
       aria-label={DELETED_USER_NAME}
       title={DELETED_USER_NAME}
-      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-column text-subtle"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-hover text-subtle"
     >
       <UserX aria-hidden="true" className="size-3.5" strokeWidth={2} />
     </span>

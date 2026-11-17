@@ -10,7 +10,6 @@ import {
   type BoardJoinAck,
   type BoardLeaveAck,
   type ClientToServerEvents,
-  type PresenceUser,
   type ServerToClientEvents,
   type WsErrorCode,
 } from '@streamline/shared';
@@ -23,12 +22,10 @@ import type { UserRepository } from '../repositories/user.repository.js';
 import type { BoardAccessService } from '../services/board-access.service.js';
 import type { TokenService } from '../services/token.service.js';
 import type { BoardEvents, ChangeOrigin } from './board-events.js';
-import { createPresenceTracker, type PresenceTracker } from './presence.js';
 
 /** Data attached to an authenticated socket by the handshake middleware. */
 export interface SocketData {
   userId: string;
-  user: PresenceUser;
   /** When the access token of the handshake expires (ms since the epoch). */
   tokenExpiresAt: number;
 }
@@ -55,14 +52,12 @@ export interface RealtimeDependencies {
   tokens: Pick<TokenService, 'verifyAccessTokenClaims'>;
   boardAccess: Pick<BoardAccessService, 'require'>;
   users: Pick<UserRepository, 'findById'>;
-  presence?: PresenceTracker;
 }
 
 export interface Realtime {
   io: RealtimeServer;
   /** Publisher for services: broadcasts committed changes to the board rooms. */
   events: BoardEvents;
-  presence: PresenceTracker;
   /** Disconnects all sockets and closes the server (including the underlying HTTP server). */
   close(): Promise<void>;
 }
@@ -92,25 +87,15 @@ const GONE: BoardJoinAck = {
  *   e.g. to force them out of a board they lost access to.
  * - `board:join` checks `board:view` and puts the socket in `board:<id>`; `board:leave` takes it
  *   out. Clients never change data through the socket: they only receive broadcasts.
- * - Presence: users with at least one socket in a board room; changes are sent as
- *   `presence:update` to the room.
  */
 export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencies): Realtime {
   const { config, tokens, boardAccess, users } = deps;
   const logger = deps.logger.child({ module: 'realtime' });
-  const presence = deps.presence ?? createPresenceTracker();
 
   const io: RealtimeServer = new Server(httpServer, {
     cors: { origin: config.CORS_ORIGIN, credentials: true },
     serveClient: false,
   });
-
-  function broadcastPresence(boardId: string): void {
-    io.to(boardRoom(boardId)).emit(WS_EVENTS.PRESENCE_UPDATE, {
-      boardId,
-      users: presence.list(boardId),
-    });
-  }
 
   /** The socket to skip for an event: only a connected socket of the user who made the change. */
   function originSocketId(origin: ChangeOrigin | undefined, actorId: string): string | null {
@@ -140,16 +125,12 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
       (skip === null ? sockets : sockets.except(skip)).emit(WS_EVENTS.BOARD_ACCESS_REVOKED, {
         boardId,
       });
-      if (presence.removeUser(boardId, userId)) {
-        broadcastPresence(boardId);
-      }
       logger.debug({ boardId, userId }, 'Board access revoked');
     },
 
     closeBoard(payload, origin) {
       events.publish(WS_EVENTS.BOARD_DELETED, payload, origin);
       io.in(boardRoom(payload.boardId)).socketsLeave(boardRoom(payload.boardId));
-      presence.clearBoard(payload.boardId);
     },
   };
 
@@ -166,7 +147,6 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
       const user = await users.findById(userId);
       if (!user) throw new UnauthorizedError('User no longer exists');
       socket.data.userId = userId;
-      socket.data.user = { id: user.id, name: user.name };
       socket.data.tokenExpiresAt = expiresAt;
     } catch (err) {
       if (err instanceof AccessTokenExpiredError) {
@@ -197,7 +177,7 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
       return { ok: false, error: { code: WS_ERROR_CODES.VALIDATION_ERROR, message: 'Invalid' } };
     }
     const { boardId } = parsed.data;
-    const { userId, user } = socket.data;
+    const { userId } = socket.data;
     const room = boardRoom(boardId);
 
     await boardAccess.require(boardId, userId, 'board:view');
@@ -214,11 +194,8 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
       await socket.leave(room);
       return GONE;
     }
-    if (presence.join(boardId, socket.id, user)) {
-      broadcastPresence(boardId);
-    }
     logger.debug({ boardId, userId, socketId: socket.id }, 'Joined board');
-    return { ok: true, presence: presence.list(boardId) };
+    return { ok: true };
   }
 
   async function leaveBoard(socket: RealtimeSocket, payload: unknown): Promise<BoardLeaveAck> {
@@ -228,9 +205,6 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
     }
     const { boardId } = parsed.data;
     await socket.leave(boardRoom(boardId));
-    if (presence.leave(boardId, socket.id)) {
-      broadcastPresence(boardId);
-    }
     return { ok: true };
   }
 
@@ -273,9 +247,6 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
 
     socket.on('disconnect', (reason) => {
       clearTimeout(expiryTimer);
-      for (const boardId of presence.leaveAll(socket.id)) {
-        broadcastPresence(boardId);
-      }
       logger.debug({ userId, socketId: socket.id, reason }, 'Socket disconnected');
     });
   });
@@ -283,7 +254,6 @@ export function attachRealtime(httpServer: HttpServer, deps: RealtimeDependencie
   return {
     io,
     events,
-    presence,
     close: () => io.close(),
   };
 }

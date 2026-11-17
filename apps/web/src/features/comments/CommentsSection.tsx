@@ -245,7 +245,7 @@ function CommentItem({ comment, canEdit, canDelete }: CommentItemProps) {
           <time
             dateTime={comment.createdAt}
             title={formatDateTime(comment.createdAt)}
-            className="text-xs text-subtle"
+            className="font-mono text-xs text-subtle"
           >
             {formatRelativeTime(comment.createdAt)}
           </time>

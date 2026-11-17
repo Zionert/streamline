@@ -1,5 +1,4 @@
-import type { PublicUser } from '@streamline/shared';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setSocketFactory } from '@/lib/socket';
@@ -14,7 +13,6 @@ import {
   defaultColumns,
   memberWith,
   sessionWith,
-  testUser,
 } from '@/test/fixtures';
 import { errorBody } from '@/test/mockAdapter';
 import { renderApp, setupMockApi } from '@/test/renderApp';
@@ -31,7 +29,6 @@ const mock = setupMockApi();
 const BOARD = '/boards/board-1';
 const CARDS = `${BOARD}/cards`;
 
-const ann: PublicUser = { ...testUser, id: 'user-ann', name: 'Ann Lee', email: 'ann@example.com' };
 const t1 = cardWith({ id: 't1', number: 1, columnId: 'col-todo', rank: 'd', title: 'Fix login' });
 
 let sockets: FakeSocket[] = [];
@@ -62,7 +59,7 @@ async function renderBoard(path = BOARD) {
   useAuthStore.getState().setSession(sessionWith('token-1'));
   mockBoard();
   const result = renderApp(path);
-  await screen.findByRole('heading', { level: 1, name: 'Board', hidden: true });
+  await screen.findByRole('heading', { level: 1, name: 'Sprint board', hidden: true });
   return result;
 }
 
@@ -82,34 +79,14 @@ async function connected(): Promise<FakeSocket> {
 }
 
 describe('useBoardRealtime', () => {
-  it('connects when the board opens, joins its room and shows who is viewing it', async () => {
+  it('connects when the board opens and joins its room', async () => {
     await renderBoard();
     const socket = lastSocket();
     expect(socket.connectCalls).toBe(1);
-    socket.joinResponder = () => ({ ok: true, presence: [testUser, ann] });
 
     await connected();
 
     expect(socket.requests('board:join')).toEqual([{ boardId: 'board-1' }]);
-    const presence = await screen.findByRole('group', { name: 'Users viewing this board' });
-    expect(within(presence).getByRole('img', { name: 'Ann Lee' })).toBeTruthy();
-    expect(within(presence).getByRole('img', { name: testUser.name })).toBeTruthy();
-  });
-
-  it('updates the presence from presence:update events of the board only', async () => {
-    await renderBoard();
-    const socket = await connected();
-
-    act(() => {
-      socket.serverEmit('presence:update', { boardId: 'board-2', users: [ann] });
-    });
-    expect(screen.queryByRole('group', { name: 'Users viewing this board' })).toBeNull();
-
-    act(() => {
-      socket.serverEmit('presence:update', { boardId: 'board-1', users: [testUser, ann] });
-    });
-    const presence = await screen.findByRole('group', { name: 'Users viewing this board' });
-    expect(within(presence).getAllByRole('img')).toHaveLength(2);
   });
 
   it('leaves the room and disconnects when the board page is left', async () => {
@@ -201,7 +178,7 @@ describe('useBoardRealtime', () => {
     expect(mock.current.requestsTo('GET', BOARD)).toHaveLength(1);
 
     await act(async () => {
-      socket.ackJoin({ ok: true, presence: [] });
+      socket.ackJoin({ ok: true });
       await Promise.resolve();
     });
 

@@ -18,3 +18,12 @@ export function cardTileLabel(
   const labels = labelNames.length === 0 ? '' : `, labels ${labelNames.join(', ')}`;
   return `${card.key} ${card.title}, ${priority}, ${person}${labels}`;
 }
+
+/** Priorities with a visible marker on the board; LOW and MEDIUM stay unmarked (less noise). */
+export const MARKED_PRIORITIES = ['HIGH', 'URGENT'] as const satisfies readonly CardPriority[];
+
+export type MarkedPriority = (typeof MARKED_PRIORITIES)[number];
+
+export function isMarkedPriority(priority: CardPriority): priority is MarkedPriority {
+  return (MARKED_PRIORITIES as readonly CardPriority[]).includes(priority);
+}

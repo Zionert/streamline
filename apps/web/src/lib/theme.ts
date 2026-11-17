@@ -10,7 +10,8 @@ export const THEME_STORAGE_KEY = 'streamline-theme';
 
 export const DARK_SCHEME_QUERY = '(prefers-color-scheme: dark)';
 
-const DEFAULT_PREFERENCE: ThemePreference = 'light';
+/** Used when nothing valid is stored; the inline script in index.html repeats it. */
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'dark';
 
 function isThemePreference(value: unknown): value is ThemePreference {
   return typeof value === 'string' && (THEME_PREFERENCES as readonly string[]).includes(value);
@@ -20,9 +21,9 @@ function isThemePreference(value: unknown): value is ThemePreference {
 export function readStoredTheme(): ThemePreference {
   try {
     const value = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(value) ? value : DEFAULT_PREFERENCE;
+    return isThemePreference(value) ? value : DEFAULT_THEME_PREFERENCE;
   } catch {
-    return DEFAULT_PREFERENCE;
+    return DEFAULT_THEME_PREFERENCE;
   }
 }
 

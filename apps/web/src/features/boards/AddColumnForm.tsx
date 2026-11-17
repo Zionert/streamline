@@ -17,13 +17,15 @@ export function AddColumnGhost() {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="flex w-[280px] shrink-0 flex-col self-start rounded-column border-2 border-dashed border-border p-2">
+    <div className="flex min-h-11 w-[300px] shrink-0 flex-col self-start rounded-lg border border-dashed border-border-strong">
       {isOpen ? (
-        <AddColumnForm onCancel={() => setIsOpen(false)} />
+        <div className="p-2">
+          <AddColumnForm onCancel={() => setIsOpen(false)} />
+        </div>
       ) : (
         <Button
           variant="ghost"
-          className="w-full justify-start text-subtle"
+          className="h-[42px] w-full justify-start rounded-[7px] px-3 text-subtle"
           onClick={() => setIsOpen(true)}
         >
           <Plus strokeWidth={2} />

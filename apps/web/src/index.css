@@ -4,13 +4,13 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
 
-  /* 4 px fields and cards, 6 px columns, 8 px modals. */
+  /* 4 px pills, 6 px buttons, fields and tabs, 8 px cards and tiles, 12 px modals. */
   --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-column: 6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 12px;
 
@@ -18,16 +18,22 @@
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-surface-hover: var(--surface-hover);
-  --color-sidebar: var(--sidebar);
-  --color-column: var(--column);
+  --color-surface-raised: var(--surface-raised);
+  --color-border-strong: var(--border-strong);
   --color-text: var(--text);
   --color-subtle: var(--text-subtle);
+  --color-muted: var(--text-muted);
   --color-primary-hover: var(--primary-hover);
   --color-primary-subtle: var(--primary-subtle);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
+  --color-primary-text: var(--primary-text);
+  --color-cat-backlog: var(--cat-backlog);
+  --color-cat-todo: var(--cat-todo);
+  --color-cat-progress: var(--cat-progress);
+  --color-cat-done: var(--cat-done);
+  --color-warning-text: var(--warning-text);
   --color-danger: var(--danger);
   --color-danger-subtle: var(--danger-subtle);
+  --color-overlay: var(--overlay);
 
   /* shadcn/ui tokens. */
   --color-background: var(--background);
@@ -40,7 +46,6 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
@@ -51,26 +56,40 @@
   --color-ring: var(--ring);
 }
 
+/* Light theme ("Graphite light"); the dark theme below is the default chosen at start-up. */
 :root {
-  --canvas: #ffffff;
+  --canvas: #f6f6f7;
   --surface: #ffffff;
-  --surface-hover: #f7f8f9;
-  --sidebar: #f7f8f9;
-  --column: #f1f2f4;
-  --text: #172b4d;
-  --text-subtle: #626f86;
-  --border-color: #dcdfe4;
-  --primary-base: #0c66e4;
-  --primary-hover: #0055cc;
-  --primary-subtle: #e9f2ff;
-  --success: #22a06b;
-  --warning: #e2b203;
-  --danger: #e34935;
-  --danger-subtle: #ffeceb;
-  /* Darker red for text and filled buttons: --danger on white is below 4.5:1. */
-  --danger-text: #ae2e24;
-  --on-primary: #ffffff;
-  --on-danger: #ffffff;
+  --surface-hover: #efeff1;
+  --surface-raised: #ffffff;
+  --border: #e3e4e7;
+  --border-strong: #cfd1d6;
+  --text: #18191b;
+  --text-subtle: #55585f;
+  /* One step darker than #6B6E75, which is below 4.5:1 on --surface-hover and --danger-subtle. */
+  --text-muted: #696c73;
+  --primary: #e8961e;
+  --primary-hover: #d4850f;
+  --primary-foreground: #17130a;
+  --primary-subtle: #fdf1de;
+  /* The accent as text: --primary on white is below 4.5:1. */
+  --primary-text: #8a5300;
+  /* Category lines sit on the canvas and need 3:1 (non-text contrast): a neutral grey for
+     BACKLOG (--border-strong is below 1.5:1) and a deeper amber for IN_PROGRESS (--primary is
+     below 2.3:1 on the light canvas). */
+  --cat-backlog: var(--text-muted);
+  --cat-todo: #2f7fc1;
+  --cat-progress: #b86e00;
+  --cat-done: #1f8a56;
+  --warning-text: #8a5300;
+  --danger: #e5484d;
+  --danger-subtle: #fdecec;
+  /* Error text: --danger on white is below 4.5:1. */
+  --destructive: #b42318;
+  --overlay: rgb(0 0 0 / 60%);
+  /* Focus ring: --primary on the light canvas and surfaces is below the 3:1 of non-text
+     contrast, so the light theme rings in the accent's text colour. */
+  --ring: var(--primary-text);
 
   /* Label pills: subtle background with dark text (contrast above 7:1). */
   --label-green-bg: #baf3db;
@@ -94,78 +113,93 @@
   --label-gray-bg: #dcdfe4;
   --label-gray-text: #282e33;
 
-  --shadow-card: 0 1px 1px rgb(9 30 66 / 25%), 0 0 1px rgb(9 30 66 / 31%);
-  --shadow-raised: 0 8px 12px rgb(9 30 66 / 15%), 0 0 1px rgb(9 30 66 / 31%);
+  /* Label dots: mid-tone tints with at least 3:1 contrast on both #FFFFFF and #17181B, so the
+     same values serve both themes. */
+  --label-green-dot: #1f9d57;
+  --label-yellow-dot: #b88a00;
+  --label-orange-dot: #d9670f;
+  --label-red-dot: #dc3b3b;
+  --label-purple-dot: #7c5cdb;
+  --label-blue-dot: #2f7fd6;
+  --label-sky-dot: #1a93b8;
+  --label-lime-dot: #5e9a1a;
+  --label-pink-dot: #d1488f;
+  --label-gray-dot: #7b8089;
+
+  --shadow-card: 0 1px 2px rgb(16 17 19 / 6%);
+  --shadow-raised: 0 12px 32px rgb(16 17 19 / 14%);
 }
 
 .dark {
-  --canvas: #1d2125;
-  --surface: #22272b;
-  --surface-hover: #2c333a;
-  --sidebar: #1d2125;
-  --column: #161a1d;
-  --text: #b6c2cf;
-  --text-subtle: #8c9bab;
-  --border-color: #38414a;
-  --primary-base: #579dff;
-  --primary-hover: #85b8ff;
-  --primary-subtle: #1c2b41;
-  --success: #4bce97;
-  --warning: #f5cd47;
-  --danger: #f87168;
-  --danger-subtle: #42221f;
-  --danger-text: #f87168;
-  --on-primary: #1d2125;
-  --on-danger: #1d2125;
+  --canvas: #0f1012;
+  --surface: #17181b;
+  --surface-hover: #1d1f23;
+  --surface-raised: #1a1b1f;
+  --border: #25272c;
+  --border-strong: #2e3035;
+  --text: #e6e6e3;
+  --text-subtle: #a9abb0;
+  --text-muted: #8b8d93;
+  --primary: #f2a93b;
+  --primary-hover: #ffc56b;
+  --primary-foreground: #17130a;
+  --primary-subtle: #2a2215;
+  --primary-text: #f2a93b;
+  --cat-backlog: var(--text-muted);
+  --cat-todo: #7cc4fa;
+  --cat-progress: var(--primary);
+  --cat-done: #86d9a8;
+  --warning-text: #f5c35b;
+  --danger: #ff7a6b;
+  --danger-subtle: #2a1716;
+  --destructive: #ff8a7d;
+  --overlay: rgb(0 0 0 / 60%);
+  --ring: var(--primary);
 
-  /* Label pills: deep background with light text (the light theme pair, swapped). */
-  --label-green-bg: #164b35;
-  --label-green-text: #baf3db;
-  --label-yellow-bg: #533f04;
-  --label-yellow-text: #f8e6a0;
-  --label-orange-bg: #702e00;
-  --label-orange-text: #fedec8;
-  --label-red-bg: #5d1f1a;
-  --label-red-text: #ffd5d2;
-  --label-purple-bg: #352c63;
-  --label-purple-text: #dfd8fd;
-  --label-blue-bg: #09326c;
-  --label-blue-text: #cce0ff;
-  --label-sky-bg: #164555;
-  --label-sky-text: #c6edfb;
-  --label-lime-bg: #37471f;
-  --label-lime-text: #d3f1a7;
-  --label-pink-bg: #50253f;
-  --label-pink-text: #fdd0ec;
-  --label-gray-bg: #454f59;
-  --label-gray-text: #dee4ea;
+  /* Label pills: deep, muted background with light text, tuned for the #17181B surface. */
+  --label-green-bg: #1c3a2a;
+  --label-green-text: #a6ebc4;
+  --label-yellow-bg: #3a3112;
+  --label-yellow-text: #f3dd8a;
+  --label-orange-bg: #44290f;
+  --label-orange-text: #fbcfa8;
+  --label-red-bg: #4a1f1d;
+  --label-red-text: #ffc2bc;
+  --label-purple-bg: #2e2850;
+  --label-purple-text: #d6ccfd;
+  --label-blue-bg: #172e4f;
+  --label-blue-text: #bfd7ff;
+  --label-sky-bg: #15363f;
+  --label-sky-text: #b4e6f7;
+  --label-lime-bg: #2b3a17;
+  --label-lime-text: #cdeb9f;
+  --label-pink-bg: #45213a;
+  --label-pink-text: #f9c4e3;
+  --label-gray-bg: #2e3035;
+  --label-gray-text: #d5d7db;
 
-  --shadow-card: 0 1px 1px rgb(0 0 0 / 50%), 0 0 1px rgb(0 0 0 / 50%);
-  --shadow-raised: 0 8px 12px rgb(0 0 0 / 36%), 0 0 1px rgb(0 0 0 / 50%);
+  --shadow-card: none;
+  --shadow-raised: 0 12px 40px rgb(0 0 0 / 50%);
 }
 
-/* shadcn/ui tokens mapped onto the design tokens (both themes). */
+/* shadcn/ui tokens mapped onto the design tokens (both themes). --primary, --primary-foreground,
+   --border and --destructive are design tokens with the same meaning, defined above. */
 :root,
 .dark {
   --background: var(--canvas);
   --foreground: var(--text);
   --card: var(--surface);
   --card-foreground: var(--text);
-  --popover: var(--surface);
+  --popover: var(--surface-raised);
   --popover-foreground: var(--text);
-  --primary: var(--primary-base);
-  --primary-foreground: var(--on-primary);
-  --secondary: var(--column);
+  --secondary: var(--surface-hover);
   --secondary-foreground: var(--text);
-  --muted: var(--column);
+  --muted: var(--surface-hover);
   --muted-foreground: var(--text-subtle);
   --accent: var(--surface-hover);
   --accent-foreground: var(--text);
-  --destructive: var(--danger-text);
-  --destructive-foreground: var(--on-danger);
-  --border: var(--border-color);
-  --input: var(--border-color);
-  --ring: var(--primary-base);
+  --destructive-foreground: var(--primary-foreground);
+  --input: var(--border-strong);
 }
 
 @utility shadow-card {
@@ -187,6 +221,6 @@
     color-scheme: dark;
   }
   body {
-    @apply bg-background text-sm text-foreground antialiased;
+    @apply bg-background font-sans text-sm text-foreground antialiased;
   }
 }

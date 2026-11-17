@@ -55,7 +55,7 @@ async function renderBoard(role: BoardRole = 'MEMBER', path = BOARD, cards: Card
   }
   const result = renderApp(path);
   // An open modal hides the board from the accessibility tree.
-  await screen.findByRole('heading', { level: 1, name: 'Board', hidden: true });
+  await screen.findByRole('heading', { level: 1, name: 'Sprint board', hidden: true });
   return result;
 }
 
@@ -79,9 +79,14 @@ describe('card details', () => {
     expect(within(dialog).getByLabelText('Assignee')).toHaveValue('');
     expect(within(dialog).getByLabelText('Priority')).toHaveValue('MEDIUM');
     expect(within(dialog).getByLabelText('Due date')).toHaveValue('2026-12-01');
-    expect(dialog).toHaveTextContent(/Created \d{1,2} Nov 2026/);
+    expect(within(dialog).getByText('Created').closest('div')).toHaveTextContent(
+      /^Created\d{1,2} Nov 2026/,
+    );
+    expect(within(dialog).getByText('Updated')).toHaveClass('font-mono', 'uppercase', 'text-muted');
     // The board stays rendered behind the modal.
-    expect(screen.getByRole('heading', { level: 1, name: 'Board', hidden: true })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Sprint board', hidden: true }),
+    ).toBeTruthy();
 
     fireEvent.keyDown(dialog, { key: 'Escape' });
 

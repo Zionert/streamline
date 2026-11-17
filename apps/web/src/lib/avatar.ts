@@ -1,17 +1,20 @@
 /**
- * Background colours for avatars and board icons. Each one keeps white text above the WCAG AA
- * contrast ratio of 4.5:1, in both themes.
+ * Pastel background colours for avatars and board icons, the same in both themes. Each one keeps
+ * the dark avatar text (`AVATAR_TEXT_COLOR`) above the WCAG AA contrast ratio of 4.5:1.
  */
 export const AVATAR_PALETTE = [
-  '#0C66E4', // blue
-  '#216E4E', // green
-  '#AE2E24', // red
-  '#5E4DB2', // purple
-  '#206A83', // teal
-  '#A54800', // orange
-  '#943D73', // magenta
-  '#44546F', // slate
+  '#F2A93B', // amber
+  '#7CC4FA', // sky
+  '#B6A2F5', // lavender
+  '#86D9A8', // mint
+  '#F28FB1', // pink
+  '#F5D06B', // yellow
+  '#8DD3D8', // teal
+  '#C9B79C', // sand
 ] as const;
+
+/** Text colour of the initials on every palette colour. */
+export const AVATAR_TEXT_COLOR = '#0F1012';
 
 export type PaletteColor = (typeof AVATAR_PALETTE)[number];
 

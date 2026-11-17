@@ -13,10 +13,10 @@ function Toaster(props: ToasterProps) {
       className="toaster group"
       style={
         {
-          '--normal-bg': 'var(--popover)',
-          '--normal-text': 'var(--popover-foreground)',
-          '--normal-border': 'var(--border)',
-          '--border-radius': '4px',
+          '--normal-bg': 'var(--surface-raised)',
+          '--normal-text': 'var(--text)',
+          '--normal-border': 'var(--border-strong)',
+          '--border-radius': '8px',
         } as CSSProperties
       }
       {...props}

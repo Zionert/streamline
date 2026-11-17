@@ -7,6 +7,7 @@ import { setMediaQuery } from '@/test/matchMedia';
 
 import {
   DARK_SCHEME_QUERY,
+  DEFAULT_THEME_PREFERENCE,
   THEME_PREFERENCES,
   THEME_STORAGE_KEY,
   applyTheme,
@@ -18,10 +19,11 @@ import {
 const html = () => document.documentElement;
 
 describe('theme helpers', () => {
-  it('defaults to light when nothing valid is stored', () => {
-    expect(readStoredTheme()).toBe('light');
+  it('defaults to dark when nothing valid is stored', () => {
+    expect(DEFAULT_THEME_PREFERENCE).toBe('dark');
+    expect(readStoredTheme()).toBe('dark');
     window.localStorage.setItem(THEME_STORAGE_KEY, 'purple');
-    expect(readStoredTheme()).toBe('light');
+    expect(readStoredTheme()).toBe('dark');
   });
 
   it('reads back a stored choice', () => {
@@ -38,8 +40,8 @@ describe('theme helpers', () => {
       throw new Error('QuotaExceededError');
     });
 
-    expect(readStoredTheme()).toBe('light');
-    expect(() => storeTheme('dark')).not.toThrow();
+    expect(readStoredTheme()).toBe('dark');
+    expect(() => storeTheme('light')).not.toThrow();
   });
 
   it('resolves the system preference through prefers-color-scheme', () => {
@@ -63,6 +65,24 @@ describe('theme store', () => {
   afterEach(() => {
     stop?.();
     stop = undefined;
+  });
+
+  it('starts dark when nothing is stored, even with a light system theme', () => {
+    setMediaQuery(DARK_SCHEME_QUERY, false);
+
+    stop = initTheme();
+
+    expect(html()).toHaveClass('dark');
+    expect(useThemeStore.getState()).toMatchObject({ preference: 'dark', resolvedTheme: 'dark' });
+  });
+
+  it('applies a stored light choice on start', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
+
+    stop = initTheme();
+
+    expect(html()).not.toHaveClass('dark');
+    expect(useThemeStore.getState()).toMatchObject({ preference: 'light', resolvedTheme: 'light' });
   });
 
   it('applies the stored choice on start', () => {
@@ -116,13 +136,38 @@ describe('pre-render theme script in index.html', () => {
   // The inline script cannot import this module, so it repeats its constants.
   const script = /<script>([\s\S]*?)<\/script>/.exec(indexHtml)?.[1] ?? '';
 
+  /** Runs the inline script the way the browser does before React starts. */
+  function runScript(): void {
+    // The source is the static script of index.html; evaluating it is the only way to run it.
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const run = new Function(script) as () => void;
+    run();
+  }
+
   it('uses the same storage key, preferences, default and media query', () => {
     expect(script).toContain(`localStorage.getItem('${THEME_STORAGE_KEY}')`);
     for (const preference of THEME_PREFERENCES) {
       expect(script).toContain(`stored === '${preference}'`);
     }
-    expect(script).toContain("var preference = 'light';");
-    expect(readStoredTheme()).toBe('light');
+    expect(script).toContain(`var preference = '${DEFAULT_THEME_PREFERENCE}';`);
+    expect(readStoredTheme()).toBe(DEFAULT_THEME_PREFERENCE);
     expect(script).toContain(`matchMedia('${DARK_SCHEME_QUERY}')`);
+  });
+
+  it('adds the dark class when nothing is stored', () => {
+    html().classList.remove('dark');
+
+    runScript();
+
+    expect(html()).toHaveClass('dark');
+  });
+
+  it('keeps the light theme when it is stored', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
+    html().classList.remove('dark');
+
+    runScript();
+
+    expect(html()).not.toHaveClass('dark');
   });
 });

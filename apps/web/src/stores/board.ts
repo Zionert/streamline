@@ -11,7 +11,6 @@ import {
   type Column,
   type CreateLabelInput,
   type Label,
-  type PresenceUser,
   type UpdateCardInput,
   type UpdateColumnSettingsInput,
   type UpdateLabelInput,
@@ -106,8 +105,6 @@ export interface BoardState {
   isMovingCard: boolean;
   /** Message about a failed operation that has no form of its own (e.g. drag & drop). */
   notice: string | null;
-  /** Users currently viewing the opened board (each once), as reported by the server. */
-  presence: PresenceUser[];
   /** Ids of cards of the opened board deleted by someone else (e.g. to explain a closed modal). */
   deletedCardIds: ReadonlySet<string>;
   /** Labels of the opened board in creation order (the order of `labelIds` on cards). */
@@ -181,7 +178,6 @@ export interface BoardState {
   resyncBoard: (boardId: string) => Promise<ResyncResult>;
   /** Forgets a board the user lost access to (removed, or the board was deleted). */
   forgetBoard: (boardId: string) => void;
-  setPresence: (boardId: string, users: PresenceUser[]) => void;
 }
 
 type BoardData = Pick<
@@ -200,7 +196,6 @@ type BoardData = Pick<
   | 'cardsStatus'
   | 'isMovingCard'
   | 'notice'
-  | 'presence'
   | 'deletedCardIds'
   | 'labels'
   | 'labelsStatus'
@@ -218,7 +213,6 @@ const openedBoardInitialState: Omit<BoardData, 'boards' | 'boardsStatus' | 'boar
   cardsStatus: 'idle',
   isMovingCard: false,
   notice: null,
-  presence: [],
   deletedCardIds: new Set<string>(),
   labels: [],
   labelsStatus: 'idle',
@@ -625,13 +619,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         clearCardEditTracking();
       }
       resetFeedsExcept(boardId);
-      // Presence comes from the socket, which may have joined before the board started loading.
-      set((state) => ({
-        ...openedBoardInitialState,
-        boardId,
-        boardStatus: 'loading',
-        presence: state.boardId === boardId ? state.presence : [],
-      }));
+      set({ ...openedBoardInitialState, boardId, boardStatus: 'loading' });
       // Cards and labels load alongside; the columns are shown first, with card skeletons until
       // the cards arrive.
       const cardsLoading = loadCards(boardId, isCurrent);
@@ -1424,12 +1412,6 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       removeBoardFromList(boardId);
       if (get().boardId === boardId) {
         forgetOpenedBoard();
-      }
-    },
-
-    setPresence: (boardId, users) => {
-      if (get().boardId === boardId) {
-        set({ presence: users });
       }
     },
   };

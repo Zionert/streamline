@@ -32,18 +32,21 @@ export function LabelFilter({ labels, selectedIds, onToggle }: LabelFilterProps)
           {count > 0 && (
             <span
               aria-hidden="true"
-              className="rounded-sm bg-primary px-1 text-xs leading-4 text-primary-foreground"
+              className="rounded-sm bg-primary px-1 font-mono text-xs leading-4 text-primary-foreground"
             >
               {count}
             </span>
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64">
+      <PopoverContent align="end" className="w-64">
         {labels.length === 0 ? (
           <p className="text-sm text-subtle">This board has no labels yet.</p>
         ) : (
-          <ul aria-label="Filter by label" className="flex max-h-72 flex-col gap-1.5">
+          <ul
+            aria-label="Filter by label"
+            className="flex max-h-72 flex-col gap-1.5 overflow-y-auto"
+          >
             {labels.map((label) => {
               const id = `filter-label-${label.id}`;
               return (
