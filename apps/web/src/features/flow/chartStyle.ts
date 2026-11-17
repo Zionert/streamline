@@ -1,0 +1,21 @@
+import type { ChartColors } from './useChartColors';
+
+/** Tick labels of an axis: 11 px in the muted text colour (the font comes from the plot area). */
+export function axisTick(colors: ChartColors) {
+  return { fill: colors.textMuted, fontSize: 11 };
+}
+
+/** Shared look of the axes: a strong axis line and no tick marks. */
+export function axisStyle(colors: ChartColors) {
+  return {
+    tick: axisTick(colors),
+    axisLine: { stroke: colors.borderStrong },
+    tickLine: false,
+  } as const;
+}
+
+/** Margin of every chart, leaving room for the reference line labels above the plot. */
+export const CHART_MARGIN = { top: 16, right: 8, bottom: 0, left: 0 } as const;
+
+/** Space between X axis labels; fewer labels fit on narrow screens. */
+export const X_TICK_GAP = 24;

@@ -274,6 +274,17 @@ describe('GET /analytics query validation', () => {
     });
   });
 
+  it('answers a flow error from the metric functions with a 400, not a 500', async () => {
+    // An unusable clock makes the flow functions throw `FlowError` (INVALID_ARGUMENT).
+    const response = await client(appAt(new Date(Number.NaN)), fx.users.VIEWER).get(
+      analyticsPath(),
+    );
+    expectStatus(response, 400, 'VALIDATION_ERROR');
+    expect(errorResponseSchema.parse(response.body).error.message).toBe(
+      'Invalid analytics parameters',
+    );
+  });
+
   it('defaults `from` to 29 days before a given `to`', async () => {
     const result = await getAnalytics('?to=2026-06-30');
     expect(result.range).toMatchObject({ from: '2026-06-01', to: '2026-06-30' });

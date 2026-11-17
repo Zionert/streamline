@@ -1,5 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
+import { createElement, type ComponentProps } from 'react';
+import type * as Recharts from 'recharts';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { setActiveSocket, setSocketFactory } from '@/lib/socket';
@@ -16,6 +18,16 @@ class ResizeObserverStub {
   disconnect(): void {}
 }
 globalThis.ResizeObserver ??= ResizeObserverStub;
+
+// jsdom has no layout, so a chart's `ResponsiveContainer` would measure 0 x 0 and render
+// nothing; in tests it renders its chart at a fixed size instead.
+vi.mock('recharts', async (importOriginal) => {
+  const actual = await importOriginal<typeof Recharts>();
+  function ResponsiveContainer(props: ComponentProps<typeof actual.ResponsiveContainer>) {
+    return createElement(actual.ResponsiveContainer, { ...props, width: 800, height: 260 });
+  }
+  return { ...actual, ResponsiveContainer };
+});
 
 // jsdom has no matchMedia (theme, toasts). Assigned directly rather than
 // with vi.stubGlobal, which would be undone after the first test.

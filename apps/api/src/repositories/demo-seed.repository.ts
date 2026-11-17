@@ -1,3 +1,5 @@
+import { formatCardKey, type ActivityContent } from '@streamline/shared';
+
 import type {
   BoardRole,
   CardPriority,
@@ -68,10 +70,23 @@ export interface DemoSeedRepository {
   upsertUser(data: DemoUserData): Promise<string>;
   /**
    * In one transaction: deletes the owner's boards with the same key (their columns, cards,
-   * transitions, labels, ... are deleted by cascade) and creates the board with everything in
-   * it using bulk inserts. Returns the id of the new board and the number of deleted boards.
+   * transitions, labels, activity, ... are deleted by cascade) and creates the board with
+   * everything in it using bulk inserts. The board's activity log is backdated to match the
+   * history: the creation of each column (by the owner), then the creation of each card and each
+   * of its later moves to another column (by the person who moved it). Returns the id of the new
+   * board and the number of deleted boards.
    */
-  replaceBoard(data: DemoBoardData): Promise<{ boardId: string; deletedBoards: number }>;
+  replaceBoard(
+    data: DemoBoardData,
+  ): Promise<{ boardId: string; deletedBoards: number; activityCount: number }>;
+}
+
+/** A backdated entry of the demo board's activity log. */
+interface DemoActivityRow {
+  actorId: string;
+  cardId: string | null;
+  createdAt: Date;
+  content: ActivityContent;
 }
 
 /** Bulk inserts of a few hundred rows; well within this limit. */
@@ -169,6 +184,13 @@ export function createDemoSeedRepository(db: DbClient): DemoSeedRepository {
             return id;
           };
 
+          /** The column as an activity payload records it (its title at the time). */
+          const columnRef = (index: number) => ({
+            id: columnId(index),
+            name: data.columns[index]?.title ?? '',
+          });
+          const moverOf = (card: DemoBoardCard) => card.assigneeId ?? data.ownerId;
+
           await tx.cardTransition.createMany({
             data: data.cards.flatMap((card) =>
               card.transitions.map((transition, index) => {
@@ -178,11 +200,52 @@ export function createDemoSeedRepository(db: DbClient): DemoSeedRepository {
                   boardId,
                   fromColumnId: previous ? columnId(previous.column) : null,
                   toColumnId: columnId(transition.column),
-                  movedById: card.assigneeId ?? data.ownerId,
+                  movedById: moverOf(card),
                   movedAt: transition.at,
                 };
               }),
             ),
+          });
+
+          const activities: DemoActivityRow[] = data.columns.map((_, index) => ({
+            actorId: data.ownerId,
+            cardId: null,
+            createdAt: data.createdAt,
+            content: { type: 'COLUMN_CREATED', payload: { column: columnRef(index) } },
+          }));
+          for (const card of data.cards) {
+            const id = cardId(card.number);
+            // Titles never change in the demo, so the current one is the title at every entry.
+            const snapshot = { key: formatCardKey(data.key, card.number), title: card.title };
+            card.transitions.forEach((transition, index) => {
+              const previous = index === 0 ? undefined : card.transitions[index - 1];
+              activities.push({
+                actorId: moverOf(card),
+                cardId: id,
+                createdAt: transition.at,
+                content: previous
+                  ? {
+                      type: 'CARD_MOVED',
+                      payload: {
+                        card: snapshot,
+                        from: columnRef(previous.column),
+                        to: columnRef(transition.column),
+                      },
+                    }
+                  : {
+                      type: 'CARD_CREATED',
+                      payload: { card: snapshot, column: columnRef(transition.column) },
+                    },
+              });
+            });
+          }
+          await tx.activity.createMany({
+            data: activities.map(({ content, ...row }) => ({
+              ...row,
+              boardId,
+              type: content.type,
+              payload: content.payload,
+            })),
           });
           await tx.cardLabel.createMany({
             data: data.cards.flatMap((card) =>
@@ -193,7 +256,7 @@ export function createDemoSeedRepository(db: DbClient): DemoSeedRepository {
             ),
           });
 
-          return { boardId, deletedBoards };
+          return { boardId, deletedBoards, activityCount: activities.length };
         },
         { timeout: TRANSACTION_TIMEOUT_MS },
       );

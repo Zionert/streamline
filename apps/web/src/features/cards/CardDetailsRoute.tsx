@@ -13,7 +13,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { boardPath, cardPath, isOpenedFromBoard } from '@/features/boards/paths';
+import {
+  boardPath,
+  cardPath,
+  flowCardPath,
+  flowPath,
+  isOpenedFromBoard,
+} from '@/features/boards/paths';
 import { getApiErrorInfo } from '@/lib/api-error';
 import { useBoardStore } from '@/stores/board';
 
@@ -22,14 +28,38 @@ import { getCardErrorMessage } from './cardErrorMessage';
 import { findCard, findCardByKey } from './cardOrder';
 import * as cardsApi from './cardsApi';
 
+/** The page of the board a card modal is opened over. */
+export type CardRouteView = 'board' | 'flow';
+
+interface CardRouteViewPaths {
+  /** Address of the page behind the modal. */
+  pagePath: (boardId: string) => string;
+  /** Address of a card over that page. */
+  cardPath: (boardId: string, cardKey: string) => string;
+  /** Label of the button that closes a message about the card. */
+  backLabel: string;
+}
+
+const VIEW_PATHS: Readonly<Record<CardRouteView, CardRouteViewPaths>> = {
+  board: { pagePath: boardPath, cardPath, backLabel: 'Back to the board' },
+  flow: { pagePath: flowPath, cardPath: flowCardPath, backLabel: 'Back to Flow' },
+};
+
 /**
- * `/boards/:boardId/cards/:cardKey`: the details of a card as a modal over the board. Closing
- * returns to the board.
+ * `/boards/:boardId/cards/:cardKey` (or `/boards/:boardId/flow/cards/:cardKey`): the details of
+ * a card as a modal over the board (or its flow analytics). Closing returns to that page.
  */
-export function CardDetailsRoute() {
+export function CardDetailsRoute({ view = 'board' }: { view?: CardRouteView }) {
   const { boardId = '', cardKey = '' } = useParams();
   // Keyed, so that opening another card starts from a clean state.
-  return <CardDetails key={`${boardId}/${cardKey}`} boardId={boardId} cardKey={cardKey} />;
+  return (
+    <CardDetails
+      key={`${boardId}/${cardKey}`}
+      boardId={boardId}
+      cardKey={cardKey}
+      paths={VIEW_PATHS[view]}
+    />
+  );
 }
 
 type Lookup = { status: 'pending' | 'not-found' } | { status: 'error'; message: string };
@@ -41,7 +71,13 @@ const DELETED_TOAST_ID = 'card-deleted-remotely';
  * The card comes from the board store; a card that is not there (e.g. a link to a card created
  * after the cards were loaded) is fetched by its key once the board's cards have loaded.
  */
-function CardDetails({ boardId, cardKey }: { boardId: string; cardKey: string }) {
+interface CardDetailsProps {
+  boardId: string;
+  cardKey: string;
+  paths: CardRouteViewPaths;
+}
+
+function CardDetails({ boardId, cardKey, paths }: CardDetailsProps) {
   const navigate = useNavigate();
   const card = useBoardStore((state) => findCardByKey(state.cardsByColumn, cardKey));
   const cardsStatus = useBoardStore((state) => state.cardsStatus);
@@ -71,17 +107,18 @@ function CardDetails({ boardId, cardKey }: { boardId: string; cardKey: string })
   const location = useLocation();
   const locationState: unknown = location.state;
 
-  // Opened from the board: going back removes the card from the history, so the browser's Back
-  // button does not reopen it. Opened from a link: the card's entry is replaced by the board.
+  // Opened from the page behind it: going back removes the card from the history, so the
+  // browser's Back button does not reopen it. Opened from a link: the card's entry is replaced
+  // by that page.
   const close = useCallback(() => {
     if (isOpenedFromBoard(locationState)) {
       void navigate(-1);
     } else {
-      void navigate(boardPath(boardId), { replace: true });
+      void navigate(paths.pagePath(boardId), { replace: true });
     }
-  }, [locationState, navigate, boardId]);
+  }, [locationState, navigate, paths, boardId]);
 
-  const rekeyedPath = rekeyedCard ? cardPath(boardId, rekeyedCard.key) : null;
+  const rekeyedPath = rekeyedCard ? paths.cardPath(boardId, rekeyedCard.key) : null;
   useEffect(() => {
     if (rekeyedPath !== null) {
       void navigate(rekeyedPath, { replace: true, state: locationState });
@@ -137,6 +174,7 @@ function CardDetails({ boardId, cardKey }: { boardId: string; cardKey: string })
         title="Card not found"
         description={`The card ${cardKey} does not exist. It may have been deleted, or the board key has changed.`}
         onClose={close}
+        closeLabel={paths.backLabel}
       />
     );
   }
@@ -146,6 +184,7 @@ function CardDetails({ boardId, cardKey }: { boardId: string; cardKey: string })
         title="Could not load the card"
         description={lookup.message}
         onClose={close}
+        closeLabel={paths.backLabel}
         onRetry={() => {
           setLookup({ status: 'pending' });
           setAttempt((count) => count + 1);
@@ -160,10 +199,11 @@ interface MessageDialogProps {
   title: string;
   description: string;
   onClose: () => void;
+  closeLabel: string;
   onRetry?: () => void;
 }
 
-function MessageDialog({ title, description, onClose, onRetry }: MessageDialogProps) {
+function MessageDialog({ title, description, onClose, closeLabel, onRetry }: MessageDialogProps) {
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
@@ -177,7 +217,7 @@ function MessageDialog({ title, description, onClose, onRetry }: MessageDialogPr
               Retry
             </Button>
           )}
-          <Button onClick={onClose}>Back to the board</Button>
+          <Button onClick={onClose}>{closeLabel}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

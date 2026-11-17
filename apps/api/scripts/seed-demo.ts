@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     });
     console.info(
       [
-        `Demo board "${result.boardKey}" created with ${String(result.cardCount)} cards and ${String(result.transitionCount)} transitions` +
+        `Demo board "${result.boardKey}" created with ${String(result.cardCount)} cards, ${String(result.transitionCount)} transitions and ${String(result.activityCount)} activity entries` +
           (result.replacedBoards > 0 ? ' (previous demo board replaced).' : '.'),
         `Log in as:  ${result.email}`,
         // A password from the environment is never echoed.

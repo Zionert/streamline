@@ -1,8 +1,11 @@
 import {
+  activityContentSchema,
+  activityListResponseSchema,
   addDays,
   analyticsResponseSchema,
   forecastResponseSchema,
   mulberry32,
+  type Activity,
   type ColumnCategory,
 } from '@streamline/shared';
 import { compare } from 'bcryptjs';
@@ -201,6 +204,92 @@ describe('seedDemo', () => {
     }
   });
 
+  it('writes a backdated activity log that matches the history', async () => {
+    const result = await seed();
+    const columns = await db.column.findMany({ where: { boardId: result.boardId } });
+    expect(result.activityCount).toBe(columns.length + result.transitionCount);
+
+    const rows = await db.activity.findMany({ where: { boardId: result.boardId } });
+    expect(rows).toHaveLength(result.activityCount);
+    for (const row of rows) {
+      expect(
+        activityContentSchema.safeParse({ type: row.type, payload: row.payload }).success,
+      ).toBe(true);
+    }
+    const columnEntries = rows.filter((row) => row.type === 'COLUMN_CREATED');
+    expect(columnEntries.map((row) => row.cardId)).toEqual(columns.map(() => null));
+    expect(new Set(columnEntries.map((row) => row.actorId))).toEqual(
+      new Set([result.userIds.demo]),
+    );
+
+    const cards = await db.card.findMany({
+      where: { boardId: result.boardId },
+      include: { transitions: { orderBy: { movedAt: 'asc' } } },
+    });
+    const titleOf = new Map(columns.map((column) => [column.id, column.title]));
+    for (const card of cards) {
+      const entries = rows
+        .filter((row) => row.cardId === card.id)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      const key = `DEMO-${String(card.number)}`;
+      // One entry per transition: the creation, then every move, at the same instants and by
+      // the same person.
+      expect(entries.map((entry) => entry.createdAt)).toEqual(
+        card.transitions.map((t) => t.movedAt),
+      );
+      expect(entries.map((entry) => entry.actorId)).toEqual(
+        card.transitions.map((t) => t.movedById),
+      );
+      const [created, ...moves] = entries.map((entry) =>
+        activityContentSchema.parse({ type: entry.type, payload: entry.payload }),
+      );
+      expect(created).toEqual({
+        type: 'CARD_CREATED',
+        payload: {
+          card: { key, title: card.title },
+          column: {
+            id: card.transitions[0]?.toColumnId,
+            name: titleOf.get(card.transitions[0]?.toColumnId ?? ''),
+          },
+        },
+      });
+      moves.forEach((move, index) => {
+        const transition = card.transitions[index + 1];
+        expect(move).toEqual({
+          type: 'CARD_MOVED',
+          payload: {
+            card: { key, title: card.title },
+            from: {
+              id: transition?.fromColumnId,
+              name: titleOf.get(transition?.fromColumnId ?? ''),
+            },
+            to: { id: transition?.toColumnId, name: titleOf.get(transition?.toColumnId ?? '') },
+          },
+        });
+      });
+    }
+
+    // The board history serves the entries newest first, page by page.
+    const served: Activity[] = [];
+    let cursor: string | null = null;
+    do {
+      const query: string = cursor === null ? '?limit=100' : `?limit=100&cursor=${cursor}`;
+      const response = await asDemo(result, `/boards/${result.boardId}/activity${query}`);
+      expect(response.status).toBe(200);
+      const page = activityListResponseSchema.parse(response.body);
+      served.push(...page.activities);
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    expect(served).toHaveLength(result.activityCount);
+    const times = served.map((entry) => Date.parse(entry.createdAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    expect(served[0]?.createdAt).toBe(
+      new Date(Math.max(...rows.map((row) => row.createdAt.getTime()))).toISOString(),
+    );
+    expect(served.at(-1)?.type).toBe('COLUMN_CREATED');
+    expect(served.every((entry) => entry.actor !== null)).toBe(true);
+  });
+
   it('replaces the previous demo board and keeps the users', async () => {
     const first = await seed();
     // Another board of the demo user is left alone.
@@ -224,6 +313,8 @@ describe('seedDemo', () => {
     expect(await db.board.findUnique({ where: { id: other.id } })).not.toBeNull();
     expect(await db.user.count()).toBe(DEMO_USERS.length + 1);
     expect(await db.card.count()).toBe(second.cardCount);
+    // The activity of the replaced board goes with it (cascade on the board).
+    expect(await db.activity.count()).toBe(second.activityCount);
     const demoUser = await db.user.findUniqueOrThrow({ where: { email: DEMO_USER_EMAIL } });
     expect(await compare('another-password', demoUser.passwordHash)).toBe(true);
   });
