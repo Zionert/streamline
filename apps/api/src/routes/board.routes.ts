@@ -4,12 +4,17 @@ import { createActivityController } from '../controllers/activity.controller.js'
 import { createBoardController } from '../controllers/board.controller.js';
 import type { RequireBoardPermission } from '../middleware/require-board-permission.js';
 import type { BoardService } from '../services/board.service.js';
+import { createAnalyticsRouter, type AnalyticsRouterDependencies } from './analytics.routes.js';
 import { createCardRouter, type CardRouterDependencies } from './card.routes.js';
 import { createColumnRouter, type ColumnRouterDependencies } from './column.routes.js';
 import { createLabelRouter, type LabelRouterDependencies } from './label.routes.js';
 
 export interface BoardRouterDependencies
-  extends ColumnRouterDependencies, CardRouterDependencies, LabelRouterDependencies {
+  extends
+    ColumnRouterDependencies,
+    CardRouterDependencies,
+    LabelRouterDependencies,
+    AnalyticsRouterDependencies {
   boardService: BoardService;
   requireAuth: RequestHandler;
   requireBoardPermission: RequireBoardPermission;
@@ -22,6 +27,7 @@ export function createBoardRouter({
   labelService,
   commentService,
   activityService,
+  analyticsService,
   requireAuth,
   requireBoardPermission: can,
 }: BoardRouterDependencies): Router {
@@ -56,6 +62,10 @@ export function createBoardRouter({
   router.use('/:boardId/labels', createLabelRouter({ labelService, requireBoardPermission: can }));
   // Newest first; the feed of one card is under /cards/:cardId/activity.
   router.get('/:boardId/activity', can('board:view'), activity.listForBoard);
+  router.use(
+    '/:boardId/analytics',
+    createAnalyticsRouter({ analyticsService, requireBoardPermission: can }),
+  );
 
   return router;
 }

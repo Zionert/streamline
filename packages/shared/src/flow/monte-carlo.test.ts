@@ -268,3 +268,44 @@ describe('forecastHowMany', () => {
     );
   });
 });
+
+describe('maxHorizonDays option', () => {
+  const base = { samples: [1], startDate, trials: MIN_TRIALS };
+
+  it('lowers the horizon of both forecasts', () => {
+    expect(forecastWhen({ ...base, remaining: 31, maxHorizonDays: 30 })).toEqual({
+      status: 'horizon_exceeded',
+      maxHorizonDays: 30,
+    });
+    expect(
+      okWhen(forecastWhen({ ...base, remaining: 30, maxHorizonDays: 30 })).percentiles.p95,
+    ).toEqual({ date: '2026-12-17', days: 30 });
+
+    expect(
+      forecastHowMany({
+        ...base,
+        targetDate: new Date('2026-12-18T10:00:00Z'),
+        maxHorizonDays: 30,
+      }),
+    ).toEqual({ status: 'horizon_exceeded', maxHorizonDays: 30 });
+    expect(
+      okHowMany(
+        forecastHowMany({
+          ...base,
+          targetDate: new Date('2026-12-17T10:00:00Z'),
+          maxHorizonDays: 30,
+        }),
+      ).percentiles.p50,
+    ).toBe(30);
+  });
+
+  it.each([0, 1.5, MAX_FORECAST_HORIZON_DAYS + 1, Number.NaN])(
+    'rejects maxHorizonDays=%s',
+    (maxHorizonDays) => {
+      expect(() => forecastWhen({ ...base, remaining: 1, maxHorizonDays })).toThrow(FlowError);
+      expect(() => forecastHowMany({ ...base, targetDate: startDate, maxHorizonDays })).toThrow(
+        FlowError,
+      );
+    },
+  );
+});

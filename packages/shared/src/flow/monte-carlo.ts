@@ -52,6 +52,11 @@ export interface ForecastBaseOptions {
   trials?: number;
   /** Random source, default `Math.random`; inject `mulberry32(seed)` for reproducible results. */
   random?: RandomSource;
+  /**
+   * Longest forecast in days, 1..{@link MAX_FORECAST_HORIZON_DAYS} (the default); a caller may
+   * lower it to bound the computation time.
+   */
+  maxHorizonDays?: number;
 }
 
 export interface ForecastWhenOptions extends ForecastBaseOptions {
@@ -137,6 +142,7 @@ interface ResolvedBase {
   timeZone: string;
   trials: number;
   random: RandomSource;
+  maxHorizonDays: number;
 }
 
 function resolveBase(options: ForecastBaseOptions): ResolvedBase {
@@ -158,12 +164,15 @@ function resolveBase(options: ForecastBaseOptions): ResolvedBase {
   if (typeof random !== 'function') {
     throw new FlowError('INVALID_ARGUMENT', 'Invalid random: expected a function');
   }
+  const maxHorizonDays = options.maxHorizonDays ?? MAX_FORECAST_HORIZON_DAYS;
+  assertIntegerInRange(maxHorizonDays, 'maxHorizonDays', 1, MAX_FORECAST_HORIZON_DAYS);
   return {
     samples: options.samples,
     startKey: toLocalDateKey(options.startDate, timeZone),
     timeZone,
     trials,
     random,
+    maxHorizonDays,
   };
 }
 
@@ -215,7 +224,7 @@ export function forecastWhen(options: ForecastWhenOptions): ForecastWhenOutcome 
     throw new FlowError('INVALID_ARGUMENT', 'Invalid remaining: expected an integer');
   }
   const { remaining } = options;
-  const { samples, startKey, trials, random } = base;
+  const { samples, startKey, trials, random, maxHorizonDays } = base;
 
   const outcomes = new Float64Array(trials);
   if (remaining > 0) {
@@ -226,8 +235,8 @@ export function forecastWhen(options: ForecastWhenOptions): ForecastWhenOutcome 
       let days = 0;
       while (done < remaining) {
         days++;
-        if (days > MAX_FORECAST_HORIZON_DAYS) {
-          return { status: 'horizon_exceeded', maxHorizonDays: MAX_FORECAST_HORIZON_DAYS };
+        if (days > maxHorizonDays) {
+          return { status: 'horizon_exceeded', maxHorizonDays };
         }
         done += drawSample(samples, random);
       }
@@ -265,7 +274,7 @@ export function forecastWhen(options: ForecastWhenOptions): ForecastWhenOutcome 
 export function forecastHowMany(options: ForecastHowManyOptions): ForecastHowManyOutcome {
   const base = resolveBase(options);
   assertValidDate(options.targetDate, 'targetDate');
-  const { samples, startKey, timeZone, trials, random } = base;
+  const { samples, startKey, timeZone, trials, random, maxHorizonDays } = base;
   const targetKey = toLocalDateKey(options.targetDate, timeZone);
   const days = daysBetween(startKey, targetKey);
   if (days < 0) {
@@ -276,8 +285,8 @@ export function forecastHowMany(options: ForecastHowManyOptions): ForecastHowMan
   if (days > 0) {
     const missing = insufficientData(samples);
     if (missing) return missing;
-    if (days > MAX_FORECAST_HORIZON_DAYS) {
-      return { status: 'horizon_exceeded', maxHorizonDays: MAX_FORECAST_HORIZON_DAYS };
+    if (days > maxHorizonDays) {
+      return { status: 'horizon_exceeded', maxHorizonDays };
     }
     for (let trial = 0; trial < trials; trial++) {
       let done = 0;

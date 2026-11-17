@@ -39,6 +39,16 @@ export function assertValidTimeZone(timeZone: unknown): asserts timeZone is stri
   formatterFor(timeZone);
 }
 
+/** Whether `timeZone` is a known IANA time zone (accepted by `Intl.DateTimeFormat`). */
+export function isValidTimeZone(timeZone: unknown): timeZone is string {
+  try {
+    assertValidTimeZone(timeZone);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Local calendar date (`YYYY-MM-DD`) of `instant` in `timeZone`. */
 export function toLocalDateKey(instant: Date, timeZone: string = DEFAULT_TIME_ZONE): LocalDateKey {
   assertValidDate(instant, 'date');
@@ -83,6 +93,28 @@ export function dateRange(from: LocalDateKey, to: LocalDateKey): LocalDateKey[] 
   const result: LocalDateKey[] = [];
   for (let i = 0; i < count; i++) result.push(addDays(from, i));
   return result;
+}
+
+/**
+ * An instant whose local date in `timeZone` is `key`, for passing a local day to the metric
+ * functions (which take instants and only look at their local date). The instant is near the
+ * middle of the day; which one exactly is unspecified. Throws `INVALID_ARGUMENT` for a malformed
+ * key or a date that does not exist in the zone (e.g. a day skipped by a date-line change).
+ */
+export function instantOnLocalDate(key: LocalDateKey, timeZone: string = DEFAULT_TIME_ZONE): Date {
+  assertValidTimeZone(timeZone);
+  // UTC noon is within a day of every zone's local date (offsets are between -12 and +14 h),
+  // so at most two corrections by one day are needed.
+  let ms = keyToUtcMs(key) + MS_PER_DAY / 2;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const shift = daysBetween(key, toLocalDateKey(new Date(ms), timeZone));
+    if (shift === 0) return new Date(ms);
+    ms -= shift * MS_PER_DAY;
+  }
+  throw new FlowError(
+    'INVALID_ARGUMENT',
+    `Date ${JSON.stringify(key)} does not exist in time zone ${JSON.stringify(timeZone)}`,
+  );
 }
 
 /** Monday of the ISO week (Monday-Sunday) containing `key`. */

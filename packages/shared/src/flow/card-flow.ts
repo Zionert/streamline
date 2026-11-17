@@ -22,27 +22,27 @@ export interface FlowCardInput {
 
 /** Timeline facts derived from one card. Durations are `null` when not applicable. */
 export interface CardFlow {
-  cardId: string;
-  createdAt: Date;
+  readonly cardId: string;
+  readonly createdAt: Date;
   /** Category of the latest transition; `null` when unknown or there are no transitions. */
-  currentCategory: ColumnCategory | null;
+  readonly currentCategory: ColumnCategory | null;
   /** Last entry into DONE; `null` unless the card is currently in DONE. */
-  completedAt: Date | null;
+  readonly completedAt: Date | null;
   /** First-ever entry into IN_PROGRESS (later reopenings do not reset it). */
-  cycleStartedAt: Date | null;
+  readonly cycleStartedAt: Date | null;
   /** `createdAt` -> `completedAt`; `null` when not completed or `neverLeftDone`. */
-  leadTimeMs: number | null;
+  readonly leadTimeMs: number | null;
   /** `cycleStartedAt` -> `completedAt`; `null` when not completed, never in progress or `neverLeftDone`. */
-  cycleTimeMs: number | null;
-  leadTimeDays: number | null;
-  cycleTimeDays: number | null;
+  readonly cycleTimeMs: number | null;
+  readonly leadTimeDays: number | null;
+  readonly cycleTimeDays: number | null;
   /**
    * Created in a DONE column and every transition since then went to DONE (moves between DONE
    * columns included): the card counts in throughput only, without lead or cycle time.
    */
-  neverLeftDone: boolean;
+  readonly neverLeftDone: boolean;
   /** Transitions sorted by time (a copy; the input is never mutated). */
-  transitions: readonly FlowTransitionInput[];
+  readonly transitions: readonly FlowTransitionInput[];
 }
 
 /** Transitions sorted by `at` ascending; stable for equal instants, does not mutate the input. */
@@ -73,6 +73,9 @@ function validateCard(card: FlowCardInput): void {
   }
 }
 
+/** Results of {@link deriveCardFlow}, recognised when they are passed back in. */
+const derivedFlows = new WeakSet<object>();
+
 /**
  * Derives the flow timeline of one card.
  *
@@ -84,8 +87,18 @@ function validateCard(card: FlowCardInput): void {
  *   lead time `createdAt` -> last entry into DONE, cycle time from its first IN_PROGRESS.
  * - Clock skew: a transition may be recorded slightly before `createdAt`. `createdAt` is used
  *   as-is and durations are clamped to at least 0 instead of rejecting the card.
+ *
+ * The result is frozen and is itself a valid `FlowCardInput`: passing it back to
+ * `deriveCardFlow` (or to any metric function, which all call it per card) returns it without
+ * deriving it again. A caller computing several metrics can derive the cards once and pass the
+ * results to every metric.
+ *
+ * Inputs must not be mutated after derivation: the result shares the transition objects and `Date`
+ * instances of the input, so changing them (e.g. a `toCategory`, or `setTime` on a date) would
+ * make a result that is later reused stale. Build a new input object instead (it is derived afresh).
  */
 export function deriveCardFlow(card: FlowCardInput): CardFlow {
+  if (derivedFlows.has(card)) return card as CardFlow;
   validateCard(card);
   const transitions = sortTransitions(card.transitions);
   const last = transitions.at(-1);
@@ -110,7 +123,7 @@ export function deriveCardFlow(card: FlowCardInput): CardFlow {
     }
   }
 
-  return {
+  const flow: CardFlow = Object.freeze({
     cardId: card.cardId,
     createdAt: card.createdAt,
     currentCategory,
@@ -121,6 +134,8 @@ export function deriveCardFlow(card: FlowCardInput): CardFlow {
     leadTimeDays: leadTimeMs === null ? null : msToDays(leadTimeMs),
     cycleTimeDays: cycleTimeMs === null ? null : msToDays(cycleTimeMs),
     neverLeftDone,
-    transitions,
-  };
+    transitions: Object.freeze(transitions),
+  });
+  derivedFlows.add(flow);
+  return flow;
 }

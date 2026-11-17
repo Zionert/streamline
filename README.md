@@ -36,6 +36,8 @@ pnpm dev
 
 API: http://localhost:4000/health, aplikacja: http://localhost:5173.
 
+Opcjonalnie: `pnpm db:seed:demo` — tablica demonstracyjna z danymi analityki (login `demo@streamline.local`, hasło `streamline-demo`).
+
 ## Kontrole jakości
 ```bash
 pnpm lint && pnpm typecheck && pnpm test
