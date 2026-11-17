@@ -37,7 +37,7 @@ const SCENARIOS: readonly { id: Scenario; title: string }[] = [
   { id: 'repeated', title: `Insert ${OPERATIONS} new cards at one spot (worst case for ranks)` },
 ];
 
-// Copied from test-utils/prng.ts: Node's type stripping cannot resolve the `.js` import
+// Copied from `mulberry32` in src/flow/random.ts: Node's type stripping cannot resolve the `.js` import
 // specifiers used by typechecked sources, and the bench avoids adding a TypeScript loader.
 /** Seeded PRNG (mulberry32) so every run produces the same operations. */
 function createPrng(seed: number): (maxExclusive: number) => number {
