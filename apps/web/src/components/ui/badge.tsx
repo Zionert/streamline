@@ -4,15 +4,16 @@ import { Slot } from 'radix-ui';
 
 import { cn } from '@/lib/utils';
 
+/** Pill: monospace 12 px with a 4 px radius and a strong border. */
 const badgeVariants = cva(
-  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-sm border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-sm border px-1.5 py-px font-mono text-xs font-normal whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring',
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-primary text-primary-foreground',
-        secondary: 'border-transparent bg-secondary text-secondary-foreground',
-        destructive: 'border-transparent bg-destructive text-destructive-foreground',
-        outline: 'text-foreground',
+        default: 'border-border-strong text-subtle',
+        secondary: 'border-border-strong bg-surface-hover text-subtle',
+        destructive: 'border-transparent bg-danger text-primary-foreground',
+        outline: 'border-border-strong text-foreground',
       },
     },
     defaultVariants: {

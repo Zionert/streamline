@@ -45,7 +45,7 @@ export function LoginPage() {
           <Link
             to={REGISTER_PATH}
             state={redirectState}
-            className="text-primary underline-offset-4 hover:underline"
+            className="rounded-sm text-primary-text underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
           >
             Create one
           </Link>

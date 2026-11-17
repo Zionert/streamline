@@ -22,3 +22,8 @@ export function labelColorStyle(color: LabelColor): CSSProperties {
     color: `var(--label-${token}-text)`,
   };
 }
+
+/** The label's dot colour on a card tile (token `--label-<color>-dot`, readable on both themes). */
+export function labelDotStyle(color: LabelColor): CSSProperties {
+  return { backgroundColor: `var(--label-${color.toLowerCase()}-dot)` };
+}

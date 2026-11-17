@@ -161,9 +161,6 @@ async function viewer(user: TestUser, id = boardId) {
   const socket = await connect(user.token);
   const recorder = new Recorder(socket);
   await joined(socket, id);
-  // Presence updates caused by the join itself are not interesting to the tests.
-  await delay(20);
-  recorder.clear();
   return { socket, recorder };
 }
 
@@ -327,15 +324,12 @@ describe('handshake', () => {
 });
 
 describe('board:join and board:leave', () => {
-  it('lets a member join and returns the users on the board', async () => {
+  it('lets a member join the board room', async () => {
     const socket = await connect(member.token);
 
     const ack = await join(socket, boardId);
 
-    expect(ack).toEqual({
-      ok: true,
-      presence: [expect.objectContaining({ id: member.id, name: 'Member' }) as unknown],
-    });
+    expect(ack).toEqual({ ok: true });
     expect(await server.realtime.io.in(boardRoom(boardId)).fetchSockets()).toHaveLength(1);
   });
 
@@ -788,10 +782,6 @@ describe('access loss', () => {
     expect(await first.recorder.take('board:access-revoked')).toEqual({ boardId });
     expect(await secondEvents.take('board:access-revoked')).toEqual({ boardId });
     expect((await ownerView.recorder.takeBoardEvent('member:removed')).userId).toBe(member.id);
-    expect(await ownerView.recorder.take('presence:update')).toEqual({
-      boardId,
-      users: [expect.objectContaining({ id: owner.id }) as unknown],
-    });
 
     await as(owner)
       .patch(`/boards/${boardId}/columns/${column(1).id}`)
@@ -828,49 +818,5 @@ describe('access loss', () => {
     await delay(QUIET_MS);
     expect(ownerView.recorder.has('board:deleted')).toBe(false);
     expect(await server.realtime.io.in(boardRoom(boardId)).fetchSockets()).toHaveLength(0);
-    expect(server.realtime.presence.list(boardId)).toEqual([]);
-  });
-});
-
-describe('presence', () => {
-  const ids = (payload: unknown) =>
-    (payload as { users: { id: string }[] }).users.map((user) => user.id);
-
-  it('tracks joins, leaves and disconnects, counting several tabs of a user once', async () => {
-    const ownerSocket = await connect(owner.token);
-    const ownerEvents = new Recorder(ownerSocket);
-    const ownerAck = await join(ownerSocket, boardId);
-    expect(ownerAck.ok && ownerAck.presence.map((user) => user.id)).toEqual([owner.id]);
-    ownerEvents.clear();
-
-    const tab1 = await connect(member.token);
-    const tab1Ack = await join(tab1, boardId);
-    expect(tab1Ack.ok && tab1Ack.presence.map((user) => user.id)).toEqual([owner.id, member.id]);
-    expect(ids(await ownerEvents.take('presence:update'))).toEqual([owner.id, member.id]);
-
-    // A second tab of the same user changes nothing for the others.
-    const tab2 = await connect(member.token);
-    const tab2Ack = await join(tab2, boardId);
-    expect(tab2Ack.ok && tab2Ack.presence.map((user) => user.id)).toEqual([owner.id, member.id]);
-    tab1.disconnect();
-    await delay(QUIET_MS);
-    expect(ownerEvents.has('presence:update')).toBe(false);
-    expect(server.realtime.presence.list(boardId).map((user) => user.id)).toEqual([
-      owner.id,
-      member.id,
-    ]);
-
-    // The last tab leaving removes the user.
-    await tab2.timeout(EVENT_TIMEOUT_MS).emitWithAck('board:leave', { boardId });
-    expect(ids(await ownerEvents.take('presence:update'))).toEqual([owner.id]);
-
-    // A disconnect is a leave as well.
-    const tab3 = await connect(member.token);
-    const tab3Events = new Recorder(tab3);
-    await joined(tab3);
-    await ownerEvents.take('presence:update');
-    tab3Events.clear();
-    ownerSocket.disconnect();
-    expect(ids(await tab3Events.take('presence:update'))).toEqual([member.id]);
   });
 });

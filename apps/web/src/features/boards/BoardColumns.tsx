@@ -11,7 +11,7 @@ import {
 } from '@/features/cards/cardFilter';
 import { cardsOf, type CardsByColumn } from '@/features/cards/cardOrder';
 
-import { BoardColumn } from './BoardColumn';
+import { BoardColumn, type ColumnComposerHandle } from './BoardColumn';
 import { COLUMNS_DROPPABLE_ID, getColumnMove } from './columnDrag';
 
 export interface BoardColumnsProps {
@@ -33,6 +33,8 @@ export interface BoardColumnsProps {
   labelsById: ReadonlyMap<string, Label>;
   onMoveCard: (cardId: string, toColumnId: string, toIndex: number) => void;
   onOpenCard: (card: Card) => void;
+  /** Receives each column's composer handle (`null` when the column goes away). */
+  onComposerRef?: (columnId: string, handle: ColumnComposerHandle | null) => void;
 }
 
 /**
@@ -54,6 +56,7 @@ export function BoardColumns({
   labelsById,
   onMoveCard,
   onOpenCard,
+  onComposerRef,
 }: BoardColumnsProps) {
   const isCardHidden = isFilterActive(filter)
     ? (card: Card) => !matchesFilter(card, filter)
@@ -80,7 +83,7 @@ export function BoardColumns({
             {...droppableProvided.droppableProps}
             aria-label="Columns"
             role="list"
-            className="flex h-full items-stretch gap-3"
+            className="flex h-full items-stretch gap-4"
           >
             {columns.map((column, index) => {
               const cards = cardsOf(cardsByColumn, column.id);
@@ -113,6 +116,7 @@ export function BoardColumns({
                         isCardHidden={isCardHidden}
                         dragHandleProps={canWrite ? draggableProvided.dragHandleProps : null}
                         isDragging={snapshot.isDragging}
+                        composerRef={(handle) => onComposerRef?.(column.id, handle)}
                       />
                     </div>
                   )}

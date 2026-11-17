@@ -1,5 +1,5 @@
 import { createCardSchema, type Card } from '@streamline/shared';
-import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,19 +13,28 @@ interface CardComposerProps {
   onClose: () => void;
   /** Whether a card is hidden by the active toolbar filter (a hint then explains it). */
   isHidden?: (card: Card) => boolean;
+  /** Receives the title field, so that the column can focus an already open composer. */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 /**
  * Quick card creation at the bottom of a column: Enter adds the card (the composer stays open
  * for the next one), Escape closes it.
  */
-export function CardComposer({ columnId, columnTitle, onClose, isHidden }: CardComposerProps) {
+export function CardComposer({
+  columnId,
+  columnTitle,
+  onClose,
+  isHidden,
+  inputRef,
+}: CardComposerProps) {
   const createCard = useBoardStore((state) => state.createCard);
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const input = useRef<HTMLTextAreaElement>(null);
+  const ownInput = useRef<HTMLTextAreaElement>(null);
+  const input = inputRef ?? ownInput;
   const errorId = useId();
 
   const submit = async () => {
@@ -84,7 +93,7 @@ export function CardComposer({ columnId, columnTitle, onClose, isHidden }: CardC
         autoFocus
         rows={2}
         value={title}
-        className="min-h-14 resize-none bg-surface shadow-card"
+        className="min-h-14 resize-none bg-surface"
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         onChange={(event) => {

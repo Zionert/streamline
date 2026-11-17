@@ -10,7 +10,7 @@ import {
   type BoardMember,
   type BoardRole,
 } from '@streamline/shared';
-import { useState } from 'react';
+import { useState, type RefObject } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 
@@ -41,10 +41,18 @@ interface MembersDialogProps {
   myRole: BoardRole;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Receives focus when the dialog closes (the control the dialog was opened from). */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 /** Board members: everyone sees the list; managers add, re-role and remove; non-owners can leave. */
-export function MembersDialog({ boardName, myRole, open, onOpenChange }: MembersDialogProps) {
+export function MembersDialog({
+  boardName,
+  myRole,
+  open,
+  onOpenChange,
+  returnFocusRef,
+}: MembersDialogProps) {
   const members = useBoardStore((state) => state.members);
   const leaveBoard = useBoardStore((state) => state.leaveBoard);
   const currentUserId = useAuthStore((state) => state.user?.id);
@@ -59,7 +67,14 @@ export function MembersDialog({ boardName, myRole, open, onOpenChange }: Members
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          if (returnFocusRef?.current) {
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Members</DialogTitle>
           <DialogDescription>People with access to "{boardName}".</DialogDescription>
@@ -130,7 +145,7 @@ function MemberRow({ member, isSelf, canManage }: MemberRowProps) {
   };
 
   return (
-    <li className="flex flex-col gap-1 rounded-md border p-3">
+    <li className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar userId={member.userId} name={member.name} aria-hidden="true" />

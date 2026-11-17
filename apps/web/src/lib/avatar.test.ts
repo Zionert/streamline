@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { AVATAR_PALETTE, getInitials, paletteColorFor, splitVisible } from './avatar';
+import { contrastRatio } from '@/test/contrast';
+
+import {
+  AVATAR_PALETTE,
+  AVATAR_TEXT_COLOR,
+  getInitials,
+  paletteColorFor,
+  splitVisible,
+} from './avatar';
 
 describe('getInitials', () => {
   it('takes the first letters of the first and last word', () => {
@@ -32,8 +40,24 @@ describe('paletteColorFor', () => {
     expect(colors.size).toBeGreaterThanOrEqual(6);
   });
 
-  it('has eight colours', () => {
-    expect(AVATAR_PALETTE).toHaveLength(8);
+  it('has the eight pastel colours of the design', () => {
+    expect(AVATAR_PALETTE).toEqual([
+      '#F2A93B',
+      '#7CC4FA',
+      '#B6A2F5',
+      '#86D9A8',
+      '#F28FB1',
+      '#F5D06B',
+      '#8DD3D8',
+      '#C9B79C',
+    ]);
+  });
+
+  it('keeps the dark initials readable (WCAG AA) on every colour', () => {
+    expect(AVATAR_TEXT_COLOR).toBe('#0F1012');
+    for (const color of AVATAR_PALETTE) {
+      expect(contrastRatio(color, AVATAR_TEXT_COLOR)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 

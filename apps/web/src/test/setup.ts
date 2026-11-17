@@ -17,7 +17,7 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver ??= ResizeObserverStub;
 
-// jsdom has no matchMedia (theme, sidebar breakpoints, toasts). Assigned directly rather than
+// jsdom has no matchMedia (theme, toasts). Assigned directly rather than
 // with vi.stubGlobal, which would be undone after the first test.
 window.matchMedia = matchMediaStub;
 

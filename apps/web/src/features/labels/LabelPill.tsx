@@ -3,7 +3,7 @@ import type { ComponentProps } from 'react';
 
 import { cn } from '@/lib/utils';
 
-import { LABEL_COLOR_NAMES, labelColorStyle } from './labelColors';
+import { LABEL_COLOR_NAMES, labelColorStyle, labelDotStyle } from './labelColors';
 
 interface LabelPillProps extends Omit<ComponentProps<'span'>, 'children' | 'color'> {
   name: string;
@@ -25,7 +25,7 @@ export function LabelPill({
       data-label-color={color}
       title={`${name} (${LABEL_COLOR_NAMES[color]})`}
       className={cn(
-        'inline-block max-w-full min-w-0 truncate rounded-sm font-semibold',
+        'inline-block max-w-full min-w-0 truncate rounded-sm font-medium',
         size === 'sm' ? 'h-4 max-w-24 px-1 text-xs leading-4' : 'h-5 px-2 text-xs leading-5',
         className,
       )}
@@ -33,6 +33,25 @@ export function LabelPill({
       {...props}
     >
       {name}
+    </span>
+  );
+}
+
+/** A label on a card tile: a 7 px dot in the label's colour and its name. */
+export function LabelDot({ name, color }: { name: string; color: LabelColor }) {
+  return (
+    <span
+      data-testid="card-label"
+      title={`${name} (${LABEL_COLOR_NAMES[color]})`}
+      className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-xs text-subtle"
+    >
+      <span
+        aria-hidden="true"
+        data-label-color={color}
+        className="size-[7px] shrink-0 rounded-full"
+        style={labelDotStyle(color)}
+      />
+      <span className="truncate">{name}</span>
     </span>
   );
 }

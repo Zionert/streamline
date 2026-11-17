@@ -33,8 +33,8 @@ export function ThemeSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Theme">
-          <TriggerIcon className="size-5" strokeWidth={2} />
+        <Button variant="ghost" size="icon-sm" aria-label="Theme">
+          <TriggerIcon className="size-[18px]" strokeWidth={2} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">

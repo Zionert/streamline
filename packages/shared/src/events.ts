@@ -55,8 +55,6 @@ export const WS_EVENTS = {
    * made the change (see {@link isEchoSuppressed}), whose feed needs it as well.
    */
   ACTIVITY_CREATED: 'activity:created',
-  /** Users currently viewing the board changed. */
-  PRESENCE_UPDATE: 'presence:update',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -110,17 +108,9 @@ export const wsErrorSchema = z.object({
 
 export type WsError = z.infer<typeof wsErrorSchema>;
 
-/** A user viewing a board, as shown to the other viewers (only what an avatar needs). */
-export const presenceUserSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-});
-
-export type PresenceUser = z.infer<typeof presenceUserSchema>;
-
-/** Acknowledgement of `board:join`: the users currently viewing the board (the caller included). */
+/** Acknowledgement of `board:join`. */
 export const boardJoinAckSchema = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), presence: z.array(presenceUserSchema) }),
+  z.object({ ok: z.literal(true) }),
   z.object({ ok: z.literal(false), error: wsErrorSchema }),
 ]);
 
@@ -239,20 +229,11 @@ export const accessRevokedEventSchema = z.object({ boardId: z.string() });
 
 export type AccessRevokedEvent = z.infer<typeof accessRevokedEventSchema>;
 
-export const presenceUpdateEventSchema = z.object({
-  boardId: z.string(),
-  /** Each user once, however many tabs they have open, in the order they arrived. */
-  users: z.array(presenceUserSchema),
-});
-
-export type PresenceUpdateEvent = z.infer<typeof presenceUpdateEventSchema>;
-
 /** Socket.io typing of the events sent by the server. */
 export type ServerToClientEvents = {
   [K in BoardEventName]: (payload: BoardEventPayloads[K]) => void;
 } & {
   [WS_EVENTS.BOARD_ACCESS_REVOKED]: (payload: AccessRevokedEvent) => void;
-  [WS_EVENTS.PRESENCE_UPDATE]: (payload: PresenceUpdateEvent) => void;
 };
 
 /** Socket.io typing of the events sent by the client. */

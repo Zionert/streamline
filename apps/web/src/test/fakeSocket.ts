@@ -28,7 +28,7 @@ export class FakeSocket {
   connectCalls = 0;
   disconnected = false;
   readonly emitted: EmittedRequest[] = [];
-  joinResponder: JoinResponder = () => ({ ok: true, presence: [] });
+  joinResponder: JoinResponder = () => ({ ok: true });
   private readonly heldJoinAcks: ((response: unknown) => void)[] = [];
 
   private readonly listeners = new Map<string, Set<Listener>>();

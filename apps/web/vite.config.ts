@@ -34,7 +34,8 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
       include: ['src/**/*.test.{ts,tsx}'],
-      css: false,
+      // Stylesheets are not processed in tests; only their raw source can be imported (tokens).
+      css: { include: [/\.css\?raw$/] },
     },
   };
 });

@@ -1,7 +1,6 @@
 import {
   accessRevokedEventSchema,
   parseBoardEvent,
-  presenceUpdateEventSchema,
   WS_ERROR_CODES,
   WS_EVENTS,
 } from '@streamline/shared';
@@ -97,7 +96,6 @@ export function useBoardRealtime(boardId: string): void {
         }
         if (ack.ok) {
           joinRetried = false;
-          store().setPresence(boardId, ack.presence);
           void store()
             .resyncBoard(boardId)
             .then((result) => {
@@ -181,13 +179,6 @@ export function useBoardRealtime(boardId: string): void {
       }
     });
 
-    socket.on(WS_EVENTS.PRESENCE_UPDATE, (payload) => {
-      const parsed = presenceUpdateEventSchema.safeParse(payload);
-      if (active && parsed.success && parsed.data.boardId === boardId) {
-        store().setPresence(boardId, parsed.data.users);
-      }
-    });
-
     setActiveSocket(socket);
     socket.connect();
 
@@ -202,7 +193,6 @@ export function useBoardRealtime(boardId: string): void {
       socket.removeAllListeners();
       socket.offAny();
       socket.disconnect();
-      store().setPresence(boardId, []);
     };
   }, [boardId, userId]);
 }

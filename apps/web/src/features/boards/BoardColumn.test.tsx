@@ -1,13 +1,13 @@
 import { DragDropContext, type DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
 import type { Card, Column } from '@streamline/shared';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { describe, expect, it, vi } from 'vitest';
 
 import { cardWith, columnWith } from '@/test/fixtures';
 
-import { BoardColumn, type BoardColumnProps } from './BoardColumn';
+import { BoardColumn, type BoardColumnProps, type ColumnComposerHandle } from './BoardColumn';
 
 /** Card lists are droppables, so a column needs a drag & drop context around it. */
 function withDragContext(children: ReactNode) {
@@ -84,24 +84,27 @@ describe('BoardColumn', () => {
     }
   });
 
-  it('counts the real cards: "(n)" without a limit', () => {
+  it('counts the real cards: "n" without a limit', () => {
     renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a' }), 2);
 
     const region = screen.getByRole('region', { name: 'Review' });
-    expect(region).toHaveTextContent('(2)');
+    const counter = within(region).getByLabelText('2 cards');
+    expect(counter).toHaveTextContent(/^2/);
+    expect(counter).toHaveClass('font-mono', 'text-subtle');
     expect(region).not.toHaveAttribute('data-wip-exceeded');
     const list = within(region).getByRole('list', { name: 'Cards in Review' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
     expect(within(region).queryByText('No cards')).toBeNull();
   });
 
-  it('shows "(n / limit)" within the WIP limit without the danger styling', () => {
+  it('shows "n / limit" within the WIP limit without the danger styling', () => {
     renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a', wipLimit: 3 }), 3);
 
     const region = screen.getByRole('region', { name: 'Review' });
-    expect(screen.getByLabelText('WIP 3 of 3')).toHaveTextContent('(3 / 3)');
+    expect(screen.getByLabelText('WIP 3 of 3')).toHaveTextContent('3 / 3');
     expect(region).not.toHaveAttribute('data-wip-exceeded');
-    expect(region).not.toHaveClass('bg-danger-subtle');
+    expect(within(region).getByTestId('card-list')).not.toHaveClass('bg-danger-subtle');
+    expect(within(region).getByTestId('category-line')).not.toHaveClass('bg-danger');
   });
 
   it('highlights an exceeded WIP limit on the counter and the column', () => {
@@ -109,10 +112,11 @@ describe('BoardColumn', () => {
 
     const region = screen.getByRole('region', { name: 'Review' });
     const counter = screen.getByLabelText('WIP 3 of 2, limit exceeded');
-    expect(counter).toHaveTextContent('(3 / 2)');
+    expect(counter).toHaveTextContent('3 / 2');
     expect(counter).toHaveClass('text-destructive');
     expect(region).toHaveAttribute('data-wip-exceeded', 'true');
-    expect(region).toHaveClass('border-danger', 'bg-danger-subtle');
+    expect(within(region).getByTestId('category-line')).toHaveClass('bg-danger');
+    expect(within(region).getByTestId('card-list')).toHaveClass('bg-danger-subtle', 'rounded-lg');
   });
 
   it('counts all cards even when the filter hides some of them', () => {
@@ -243,5 +247,116 @@ describe('BoardColumn', () => {
     const tile = screen.getByRole('button', { name: /^SB-1 Card 1/ });
     expect(tile).not.toHaveAttribute('data-rfd-drag-handle-draggable-id');
     expect(tile).toHaveAttribute('tabindex', '0');
+  });
+
+  it.each([
+    ['BACKLOG', 'bg-cat-backlog', 'Backlog'],
+    ['TODO', 'bg-cat-todo', 'To do'],
+    ['IN_PROGRESS', 'bg-cat-progress', 'In progress'],
+    ['DONE', 'bg-cat-done', 'Done'],
+  ] as const)('draws the %s category line under the header', (category, lineClass, label) => {
+    renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a', category }), 1);
+
+    const line = screen.getByTestId('category-line');
+    expect(line).toHaveClass('h-0.5', lineClass);
+    expect(line).toHaveAttribute('title', `Category: ${label}`);
+    expect(line).toHaveTextContent(`Category: ${label}`);
+    // The category is told by the line alone: no separate dot.
+    expect(document.querySelector('[data-category]')).toBe(line);
+  });
+
+  it('shows a 12 px lock next to the counter only for a strict limit', () => {
+    const { rerender } = renderColumn(
+      columnWith({ id: 'col-a', title: 'Review', rank: 'a', wipLimit: 2, wipStrict: true }),
+      1,
+    );
+
+    const lock = screen.getByRole('img', { name: 'Strict WIP limit' });
+    expect(lock.querySelector('svg')).toHaveClass('size-3');
+    expect(lock.previousElementSibling).toHaveAccessibleName('WIP 1 of 2');
+
+    rerender(
+      withDragContext(
+        <BoardColumn
+          column={columnWith({ id: 'col-a', title: 'Review', rank: 'a', wipLimit: 2 })}
+          cards={cardsIn('col-a', 1)}
+          canWrite={false}
+          canEditSettings={false}
+        />,
+      ),
+    );
+    expect(screen.queryByRole('img', { name: 'Strict WIP limit' })).toBeNull();
+  });
+
+  it('shows the uppercase monospace name and a dashed empty state', () => {
+    renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a' }), 0);
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Review' })).toHaveClass(
+      'font-mono',
+      'uppercase',
+      'text-subtle',
+    );
+    expect(screen.getByText('No cards')).toHaveClass(
+      'h-[72px]',
+      'border-dashed',
+      'font-mono',
+      'text-muted',
+    );
+  });
+
+  it('keeps the drag handle in the tab order and visible while it has the focus', () => {
+    renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a' }), 0, {
+      canWrite: true,
+      dragHandleProps,
+    });
+
+    const handle = screen.getByRole('button', { name: 'Drag column Review' });
+    expect(handle).toHaveAttribute('tabindex', '0');
+    // Transparent while idle, but never removed from layout or the accessibility tree.
+    expect(handle).toHaveClass(
+      'opacity-0',
+      'group-hover/column:opacity-100',
+      'focus-visible:opacity-100',
+    );
+    expect(handle).not.toHaveClass('hidden', 'invisible');
+    handle.focus();
+    expect(handle).toHaveFocus();
+  });
+
+  it('lets the board open the composer through the composer handle', () => {
+    const handle: { current: ColumnComposerHandle | null } = { current: null };
+    renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a' }), 1, {
+      canWriteCards: true,
+      composerRef: handle,
+    });
+
+    act(() => handle.current?.openComposer());
+    const title = screen.getByRole('textbox', { name: 'Card title' });
+    expect(title).toHaveFocus();
+
+    // An open composer is focused again, not closed (its draft is kept).
+    fireEvent.change(title, { target: { value: 'Draft' } });
+    screen.getByRole('button', { name: 'Add a card to Review' }).focus();
+    act(() => handle.current?.openComposer());
+    expect(screen.getByRole('textbox', { name: 'Card title' })).toHaveFocus();
+    expect(screen.getByRole('textbox', { name: 'Card title' })).toHaveValue('Draft');
+  });
+
+  it('refuses the composer handle in a full column with a strict limit, like "+"', () => {
+    const error = vi.spyOn(toast, 'error');
+    const handle: { current: ColumnComposerHandle | null } = { current: null };
+    renderColumn(
+      columnWith({ id: 'col-a', title: 'Review', rank: 'a', wipLimit: 1, wipStrict: true }),
+      1,
+      { canWriteCards: true, composerRef: handle },
+    );
+
+    act(() => handle.current?.openComposer());
+
+    expect(error).toHaveBeenCalledWith(
+      'Column "Review" is at its WIP limit (1). Move a card out first.',
+      expect.anything(),
+    );
+    expect(screen.queryByRole('form', { name: 'Add a card to Review' })).toBeNull();
   });
 });

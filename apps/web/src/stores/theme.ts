@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import {
+  DEFAULT_THEME_PREFERENCE,
   applyTheme,
   onSystemThemeChange,
   readStoredTheme,
@@ -53,7 +54,10 @@ export function initTheme(): () => void {
   });
 }
 
-/** Restores the default (light) theme state without touching storage; used by tests. */
+/** Restores the default theme state without touching storage or the DOM; used by tests. */
 export function resetThemeStore(): void {
-  useThemeStore.setState({ preference: 'light', resolvedTheme: 'light' });
+  useThemeStore.setState({
+    preference: DEFAULT_THEME_PREFERENCE,
+    resolvedTheme: resolveTheme(DEFAULT_THEME_PREFERENCE, false),
+  });
 }

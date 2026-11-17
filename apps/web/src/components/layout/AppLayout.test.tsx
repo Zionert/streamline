@@ -74,19 +74,20 @@ describe('AppHeader', () => {
   it('switches the theme from the theme menu and remembers the choice', async () => {
     renderLoggedIn();
 
+    // Dark is the default when nothing is stored.
     let menu = await openMenu('Theme');
-    expect(within(menu).getByRole('menuitemradio', { name: 'Light' })).toBeChecked();
-    fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Dark' }));
-
-    expect(document.documentElement).toHaveClass('dark');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
-    expect(useThemeStore.getState().preference).toBe('dark');
-
-    menu = await openMenu('Theme');
     expect(within(menu).getByRole('menuitemradio', { name: 'Dark' })).toBeChecked();
     fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Light' }));
 
     expect(document.documentElement).not.toHaveClass('dark');
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
+    expect(useThemeStore.getState().preference).toBe('light');
+
+    menu = await openMenu('Theme');
+    expect(within(menu).getByRole('menuitemradio', { name: 'Light' })).toBeChecked();
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'Dark' }));
+
+    expect(document.documentElement).toHaveClass('dark');
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
   });
 });

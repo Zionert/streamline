@@ -88,7 +88,7 @@ async function renderBoard(
   mock.current.on('GET', `${BOARD}/labels`, { status: 200, data: { labels: [] } });
   mock.current.on('GET', ACTIVITY, { status: 200, data: { activities, nextCursor } });
   const result = renderApp(BOARD);
-  await screen.findByRole('heading', { level: 1, name: 'Board' });
+  await screen.findByRole('heading', { level: 1, name: 'Sprint board' });
   await screen.findByRole('button', { name: /^SB-1 / });
   return result;
 }
@@ -106,7 +106,7 @@ const entryTexts = (panel: HTMLElement) =>
     .map((entry) => entry.textContent?.replace(/\s+/g, ' ').trim());
 
 describe('board activity panel', () => {
-  it('opens from the toolbar and shows the activity newest first', async () => {
+  it('opens from the Activity tab and shows the activity newest first', async () => {
     await renderBoard();
 
     const panel = await openPanel();

@@ -7,6 +7,7 @@ import { useBoardStore } from '@/stores/board';
 import {
   boardWith,
   cardListFor,
+  cardWith,
   columnWith,
   defaultColumns,
   memberWith,
@@ -53,7 +54,7 @@ async function renderBoard(
   mock.current.on('GET', MEMBERS, { status: 200, data: { members } });
   mock.current.on('GET', CARDS, { status: 200, data: cardListFor(columns, options.cards) });
   const result = renderApp(options.path ?? BOARD, options);
-  await screen.findByRole('heading', { level: 1, name: 'Board' });
+  await screen.findByRole('heading', { level: 1, name: 'Sprint board' });
   return result;
 }
 
@@ -92,8 +93,10 @@ async function columnMenuItems(title: string): Promise<string[]> {
   return names;
 }
 
+/** Opens the members dialog from the Team tab of the top bar. */
 async function openMembers() {
-  fireEvent.click(screen.getByRole('button', { name: 'Members' }));
+  const views = screen.getByRole('navigation', { name: 'Board views' });
+  fireEvent.click(within(views).getByRole('button', { name: 'Team' }));
   return screen.findByRole('dialog', { name: 'Members' });
 }
 
@@ -111,23 +114,26 @@ describe('BoardPage: layout', () => {
       '0 / 3',
     );
     expect(within(columnRegion('To Do')).queryByLabelText(/^WIP/)).toBeNull();
-    expect(within(columnRegion('To Do')).getByText('(0)')).toBeInTheDocument();
+    expect(within(columnRegion('To Do')).getByLabelText('0 cards')).toBeInTheDocument();
     expect(within(columnRegion('Done')).getByText('No cards')).toBeInTheDocument();
-    expect(screen.getByText('Member')).toBeVisible();
   });
 
-  it('shows breadcrumbs and the toolbar', async () => {
+  it('shows the board name with its key, and the toolbar', async () => {
     const { router } = await renderBoard('OWNER');
 
-    const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(within(breadcrumb).getByText('Sprint board')).toHaveAttribute('aria-current', 'page');
+    const header = screen.getByRole('banner');
+    expect(within(header).getByText('Sprint board')).toBeVisible();
+    expect(screen.getByText('Board key:').parentElement).toHaveTextContent('Board key:SB');
     expect(screen.getByRole('searchbox', { name: 'Filter cards' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Sort' })).toBeDisabled();
+    expect(screen.getByText('Board key:').parentElement).toHaveClass('font-mono', 'px-2', 'py-0.5');
+    // The header offers no sorting control (not part of the design).
+    expect(screen.queryByRole('button', { name: 'Sort' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'New card' })).toBeEnabled();
     const quickAdd = screen.getAllByRole('button', { name: /^Add a card to/ });
     expect(quickAdd).toHaveLength(4);
     quickAdd.forEach((button) => expect(button).toBeEnabled());
 
-    fireEvent.click(within(breadcrumb).getByRole('link', { name: 'Boards' }));
+    fireEvent.click(within(header).getByRole('link', { name: 'StreamLine, your boards' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/boards'));
   });
 
@@ -180,7 +186,7 @@ describe('BoardPage: layout', () => {
     expect(screen.getAllByTestId('column-skeleton')).toHaveLength(4);
     reply.resolve({ status: 200, data: { board: boardWith({ role: 'VIEWER' }) } });
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Board' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sprint board' })).toBeVisible();
     expect(screen.queryByTestId('column-skeleton')).toBeNull();
   });
 
@@ -192,7 +198,8 @@ describe('BoardPage: layout', () => {
     mock.current.on('GET', CARDS, { status: 404, data: errorBody('NOT_FOUND') });
     const { router } = renderApp(BOARD);
 
-    expect(await screen.findByRole('heading', { name: 'Board not found' })).toBeVisible();
+    const notFound = await screen.findByRole('heading', { level: 1, name: 'Board not found' });
+    expect(notFound).toHaveClass('text-[22px]', 'font-semibold');
     fireEvent.click(screen.getByRole('link', { name: 'Back to your boards' }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/boards'));
@@ -212,7 +219,82 @@ describe('BoardPage: layout', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not load the board/i);
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Board' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sprint board' })).toBeVisible();
+  });
+});
+
+describe('BoardPage: New card', () => {
+  it('opens the composer of the first TODO column and focuses it', async () => {
+    const created = cardWith({ id: 'new', number: 1, columnId: 'col-todo', rank: 'n' });
+    mock.current.on('POST', CARDS, { status: 201, data: { card: created } });
+    await renderBoard('MEMBER');
+
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
+
+    const form = screen.getByRole('form', { name: 'Add a card to To Do' });
+    const title = within(form).getByRole('textbox', { name: 'Card title' });
+    expect(title).toHaveFocus();
+    expect(screen.getAllByRole('form', { name: /^Add a card to/ })).toHaveLength(1);
+    fireEvent.change(title, { target: { value: 'From the header' } });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    await waitFor(() =>
+      expect(mock.current.requestsTo('POST', CARDS)[0]?.data).toEqual({
+        columnId: 'col-todo',
+        title: 'From the header',
+      }),
+    );
+  });
+
+  it('falls back to the first column without a TODO column', async () => {
+    const columns = defaultColumns().filter((column) => column.category !== 'TODO');
+    await renderBoard('OWNER', columns);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
+
+    expect(screen.getByRole('form', { name: 'Add a card to Backlog' })).toBeInTheDocument();
+  });
+
+  it('follows the board: once the TODO column is deleted it opens the first column', async () => {
+    await renderBoard('OWNER');
+    mock.current.on('DELETE', `${COLUMNS}/col-todo`, { status: 204 });
+
+    await chooseMenuItem('Actions for column To Do', 'Delete');
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete column' }));
+    await waitFor(() => expect(columnTitles()).toEqual(['Backlog', 'In Progress', 'Done']));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
+
+    const form = screen.getByRole('form', { name: 'Add a card to Backlog' });
+    expect(within(form).getByRole('textbox', { name: 'Card title' })).toHaveFocus();
+  });
+
+  it('shows a toast instead of the composer when the target column is strictly full', async () => {
+    const columns = defaultColumns().map((column) =>
+      column.category === 'TODO' ? { ...column, wipLimit: 1, wipStrict: true } : column,
+    );
+    const full = cardWith({ id: 't1', number: 1, columnId: 'col-todo', rank: 'b' });
+    await renderBoard('OWNER', columns, { cards: [full] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'New card' }));
+
+    expect(
+      await screen.findByText('Column "To Do" is at its WIP limit (1). Move a card out first.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: /^Add a card to/ })).toBeNull();
+  });
+
+  it('is hidden without card:write', async () => {
+    await renderBoard('VIEWER');
+
+    expect(screen.queryByRole('button', { name: 'New card' })).toBeNull();
+  });
+
+  it('is absent on a board without columns', async () => {
+    await renderBoard('OWNER', []);
+
+    expect(screen.queryByRole('button', { name: 'New card' })).toBeNull();
   });
 });
 
@@ -224,8 +306,8 @@ describe('BoardPage: permissions', () => {
     expect(screen.queryByRole('form', { name: 'Add column' })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Actions for column/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Drag column/ })).toBeNull();
-    // Board settings are for managers only.
-    expect(screen.queryByRole('button', { name: /^Settings/ })).toBeNull();
+    // Renaming and deleting the board are for managers only.
+    expect(screen.queryByRole('button', { name: 'Board actions' })).toBeNull();
 
     const dialog = await openMembers();
     expect(within(dialog).getAllByRole('listitem')).toHaveLength(3);

@@ -143,7 +143,9 @@ function LabelPicker({ card, labels, onDelete }: LabelPickerProps) {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <p className="text-center text-xs font-semibold text-subtle">Labels</p>
+      <p className="text-center font-mono text-[11px] tracking-[0.06em] text-muted uppercase">
+        Labels
+      </p>
       {labels.length > 0 && (
         <Input
           type="search"
@@ -303,11 +305,11 @@ function LabelForm({ label, onDone, onDelete }: LabelFormProps) {
         >
           <ChevronLeft strokeWidth={2} />
         </Button>
-        <p className="flex-1 pr-6 text-center text-xs font-semibold text-subtle">
+        <p className="flex-1 pr-6 text-center font-mono text-[11px] tracking-[0.06em] text-muted uppercase">
           {label === null ? 'Create a label' : 'Edit label'}
         </p>
       </div>
-      <div className="flex justify-center rounded-md bg-column p-3">
+      <div className="flex justify-center rounded-md bg-surface-hover p-3">
         <LabelPill name={name.trim() || 'Label'} color={color} />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -359,8 +361,8 @@ function LabelForm({ label, onDone, onDelete }: LabelFormProps) {
               // Roving tabindex: Tab reaches the selected colour, arrow keys change it.
               tabIndex={option === color ? 0 : -1}
               className={cn(
-                'flex h-7 items-center justify-center rounded-sm border border-border outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-                option === color && 'ring-2 ring-primary',
+                'flex h-7 items-center justify-center rounded-sm border border-border outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover',
+                option === color && 'ring-2 ring-ring',
               )}
               style={labelColorStyle(option)}
               onClick={() => setColor(option)}

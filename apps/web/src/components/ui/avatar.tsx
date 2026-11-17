@@ -1,10 +1,14 @@
 import * as React from 'react';
 
-import { getInitials, paletteColorFor, splitVisible } from '@/lib/avatar';
+import { AVATAR_TEXT_COLOR, getInitials, paletteColorFor, splitVisible } from '@/lib/avatar';
 import { cn } from '@/lib/utils';
 
 const SIZE_CLASSES = {
+  /** Assignee on a card tile (22 px). */
+  xs: 'size-[22px] text-[9px]',
   sm: 'size-6 text-[10px]',
+  /** Top bar member stack (26 px). */
+  compact: 'size-[26px] text-[10px]',
   md: 'size-8 text-xs',
 } as const;
 
@@ -25,11 +29,11 @@ function Avatar({ userId, name, size = 'md', className, style, ...props }: Avata
       aria-label={name}
       title={name}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none',
+        'inline-flex shrink-0 items-center justify-center rounded-full font-semibold select-none',
         SIZE_CLASSES[size],
         className,
       )}
-      style={{ backgroundColor: paletteColorFor(userId), ...style }}
+      style={{ backgroundColor: paletteColorFor(userId), color: AVATAR_TEXT_COLOR, ...style }}
       {...props}
     >
       <span aria-hidden="true">{getInitials(name)}</span>
@@ -54,7 +58,7 @@ interface AvatarStackProps {
   label?: string;
 }
 
-/** Overlapping avatars (-8 px) with a ring in the background colour and a "+N" counter. */
+/** Overlapping avatars (-6 px) with a ring in the page colour and a "+N" counter. */
 function AvatarStack({
   people,
   max = 4,
@@ -84,18 +88,19 @@ function AvatarStack({
             userId={person.userId}
             name={person.name}
             size={size}
-            className={cn('ring-2', active ? 'ring-primary' : 'ring-background')}
+            // The active ring uses the focus colour: --primary is below 3:1 on the light canvas.
+            className={cn('ring-2', active ? 'ring-ring' : 'ring-background')}
           />
         );
         return (
-          <span key={person.userId} className={cn('relative inline-flex', index > 0 && '-ml-2')}>
+          <span key={person.userId} className={cn('relative inline-flex', index > 0 && '-ml-1.5')}>
             {onToggle ? (
               <button
                 type="button"
                 aria-label={person.name}
                 aria-pressed={active}
                 onClick={() => onToggle(person)}
-                className="rounded-full outline-none hover:z-10 focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="rounded-full outline-none hover:z-10 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 {avatar}
               </button>
@@ -111,7 +116,7 @@ function AvatarStack({
           aria-label={`${hidden} more: ${hiddenNames}`}
           title={hiddenNames}
           className={cn(
-            '-ml-2 inline-flex shrink-0 items-center justify-center rounded-full bg-column font-semibold text-subtle ring-2 ring-background',
+            '-ml-1.5 inline-flex shrink-0 items-center justify-center rounded-full bg-surface-hover font-semibold text-subtle ring-2 ring-background',
             SIZE_CLASSES[size],
           )}
         >

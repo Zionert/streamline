@@ -1,7 +1,6 @@
 import { Draggable, Droppable, type DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
 import type { Card, Column, Label } from '@streamline/shared';
 import {
-  CircleSlash,
   Ellipsis,
   GripVertical,
   Lock,
@@ -10,7 +9,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
-import { useRef, useState, type RefObject } from 'react';
+import { useImperativeHandle, useRef, useState, type Ref, type RefObject } from 'react';
 import { toast } from 'sonner';
 
 import type { AvatarStackPerson } from '@/components/ui/avatar';
@@ -34,7 +33,7 @@ import { useBoardStore } from '@/stores/board';
 import { ColumnSettingsDialog } from './ColumnSettingsDialog';
 import { ColumnTitleEditor } from './ColumnTitleEditor';
 import { ConfirmDialog } from './ConfirmDialog';
-import { CategoryDot, ColumnCounter } from './badges';
+import { CategoryLine, ColumnCounter } from './badges';
 import { getBoardErrorMessage } from './boardErrorMessage';
 
 const NO_MEMBERS: ReadonlyMap<string, AvatarStackPerson> = new Map();
@@ -42,6 +41,12 @@ const NO_LABELS: ReadonlyMap<string, Label> = new Map();
 
 /** Toast id of the message about a full column with a strict WIP limit. */
 const WIP_TOAST_ID = 'wip-limit-reached';
+
+/** Lets the board open the quick card composer of a column (the "New card" button). */
+export interface ColumnComposerHandle {
+  /** Opens (or focuses) the composer; a full column with a strict limit shows a toast instead. */
+  openComposer: () => void;
+}
 
 export interface BoardColumnProps {
   column: Column;
@@ -61,7 +66,7 @@ export interface BoardColumnProps {
   isCardDragDisabled?: boolean;
   /** Board members by user id, for the assignee avatars. */
   membersById?: ReadonlyMap<string, AvatarStackPerson>;
-  /** Board labels by id, for the label pills of the cards. */
+  /** Board labels by id, for the labels of the cards. */
   labelsById?: ReadonlyMap<string, Label>;
   onOpenCard?: (card: Card) => void;
   /** Whether a card is hidden by the active toolbar filter (for the quick create hint). */
@@ -70,6 +75,8 @@ export interface BoardColumnProps {
   dragHandleProps?: DraggableProvidedDragHandleProps | null;
   /** The column is being dragged right now. */
   isDragging?: boolean;
+  /** Receives the handle that opens the quick card composer from outside the column. */
+  composerRef?: Ref<ColumnComposerHandle>;
 }
 
 export function BoardColumn({
@@ -87,6 +94,7 @@ export function BoardColumn({
   isCardHidden,
   dragHandleProps,
   isDragging = false,
+  composerRef,
 }: BoardColumnProps) {
   const renameColumn = useBoardStore((state) => state.renameColumn);
   const deleteColumn = useBoardStore((state) => state.deleteColumn);
@@ -96,12 +104,38 @@ export function BoardColumn({
   const [isComposing, setIsComposing] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const addCardButton = useRef<HTMLButtonElement>(null);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
   // Counters and the WIP highlight always use the real number of cards, not the filtered one.
   const cardCount = cards.length;
   const wipExceeded = column.wipLimit !== null && cardCount > column.wipLimit;
   // A strict limit refuses new cards once the column is full.
   const strictFull = column.wipStrict && column.wipLimit !== null && cardCount >= column.wipLimit;
   const canDragCards = canWriteCards && !isCardDragDisabled;
+
+  /** A full column with a strict limit explains why no card can be added; returns whether. */
+  const refuseFullColumn = () => {
+    if (strictFull && column.wipLimit !== null) {
+      toast.error(wipLimitMessage(column.title, column.wipLimit), { id: WIP_TOAST_ID });
+      return true;
+    }
+    return false;
+  };
+
+  useImperativeHandle(composerRef, () => ({
+    openComposer: () => {
+      if (!canWriteCards) {
+        return;
+      }
+      if (isComposing) {
+        composerInput.current?.focus();
+        return;
+      }
+      if (!refuseFullColumn()) {
+        // The composer's title field takes the focus when it mounts.
+        setIsComposing(true);
+      }
+    },
+  }));
 
   const closeComposer = () => {
     setIsComposing(false);
@@ -121,87 +155,89 @@ export function BoardColumn({
       aria-label={column.title}
       data-wip-exceeded={wipExceeded || undefined}
       className={cn(
-        'flex h-full w-[280px] shrink-0 flex-col gap-2 rounded-column border-t-2 border-transparent bg-column p-2 transition-[box-shadow,rotate]',
-        wipExceeded && 'border-danger bg-danger-subtle',
-        isDragging && 'rotate-[1.5deg] shadow-raised',
+        'group/column relative flex h-full w-[300px] shrink-0 flex-col gap-2 rounded-lg transition-shadow',
+        isDragging && 'bg-canvas shadow-raised',
       )}
     >
-      <div className="flex min-h-8 items-center gap-1">
-        {dragHandleProps && (
-          // A dedicated handle: its own role="button" must not swallow the heading and counter.
-          <span
-            {...dragHandleProps}
-            aria-label={`Drag column ${column.title}`}
-            title="Drag to reorder"
-            className="flex h-8 w-5 shrink-0 cursor-grab items-center justify-center rounded-sm text-subtle outline-none hover:bg-surface-hover focus-visible:ring-[3px] focus-visible:ring-ring/50 active:cursor-grabbing"
-          >
-            <GripVertical aria-hidden="true" className="size-4" strokeWidth={2} />
-          </span>
-        )}
-        {isEditingTitle ? (
-          <div className="min-w-0 flex-1">
-            <ColumnTitleEditor
-              initialTitle={column.title}
-              onSave={handleRename}
-              onCancel={() => setIsEditingTitle(false)}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex min-h-8 items-center gap-1">
+          {dragHandleProps && (
+            // A dedicated handle: its own role="button" must not swallow the heading and counter.
+            // It sits in the gap left of the column, so that the name stays aligned with the cards.
+            // Shown on hover and whenever it has the keyboard focus; never removed from the tab
+            // order (it is only transparent while idle).
+            <span
+              {...dragHandleProps}
+              data-testid="column-drag-handle"
+              aria-label={`Drag column ${column.title}`}
+              title="Drag to reorder"
+              className={cn(
+                'absolute top-0.5 -left-4 flex h-7 w-4 shrink-0 cursor-grab items-center justify-center rounded-sm text-subtle opacity-0 transition-opacity outline-none group-hover/column:opacity-100 hover:bg-surface-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing [@media(hover:none)]:opacity-100',
+                isDragging && 'opacity-100',
+              )}
+            >
+              <GripVertical aria-hidden="true" className="size-4" strokeWidth={2} />
+            </span>
+          )}
+          {isEditingTitle ? (
+            <div className="min-w-0 flex-1">
+              <ColumnTitleEditor
+                initialTitle={column.title}
+                onSave={handleRename}
+                onCancel={() => setIsEditingTitle(false)}
+              />
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <h2 className="truncate font-mono text-xs font-medium tracking-[0.06em] text-subtle uppercase">
+                {column.title}
+              </h2>
+              <ColumnCounter count={cardCount} limit={column.wipLimit} />
+              {column.wipLimit !== null && column.wipStrict && (
+                <span
+                  role="img"
+                  aria-label="Strict WIP limit"
+                  title="Strict WIP limit"
+                  data-testid="wip-strict"
+                  className="inline-flex shrink-0 text-subtle"
+                >
+                  <Lock aria-hidden="true" className="size-3" strokeWidth={2} />
+                </span>
+              )}
+            </div>
+          )}
+          {canWriteCards && (
+            <Button
+              ref={addCardButton}
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Add a card to ${column.title}`}
+              aria-expanded={isComposing}
+              title="Add a card"
+              className="size-7"
+              onClick={() => {
+                if (!isComposing && refuseFullColumn()) {
+                  return;
+                }
+                setIsComposing((open) => !open);
+              }}
+            >
+              <Plus strokeWidth={2} />
+            </Button>
+          )}
+          {(canWrite || canEditSettings) && (
+            <ColumnMenu
+              title={column.title}
+              triggerRef={menuTrigger}
+              canWrite={canWrite}
+              canEditSettings={canEditSettings}
+              onRename={() => setIsEditingTitle(true)}
+              onSettings={() => setIsEditingSettings(true)}
+              onDelete={() => setIsDeleting(true)}
             />
-          </div>
-        ) : (
-          <div
-            className={cn(
-              'flex min-w-0 flex-1 items-center gap-2 px-1 py-1',
-              !dragHandleProps && 'pl-2',
-            )}
-          >
-            <CategoryDot category={column.category} />
-            <h2 className="truncate text-xs font-semibold tracking-[0.04em] text-subtle uppercase">
-              {column.title}
-            </h2>
-            <ColumnCounter count={cardCount} limit={column.wipLimit} />
-            {column.wipLimit !== null && column.wipStrict && (
-              <span
-                role="img"
-                aria-label="Strict WIP limit"
-                title="Strict WIP limit"
-                data-testid="wip-strict"
-                className="inline-flex shrink-0 text-subtle"
-              >
-                <Lock aria-hidden="true" className="size-3" strokeWidth={2} />
-              </span>
-            )}
-          </div>
-        )}
-        {canWriteCards && (
-          <Button
-            ref={addCardButton}
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Add a card to ${column.title}`}
-            aria-expanded={isComposing}
-            title="Add a card"
-            className="text-subtle"
-            onClick={() => {
-              if (!isComposing && strictFull && column.wipLimit !== null) {
-                toast.error(wipLimitMessage(column.title, column.wipLimit), { id: WIP_TOAST_ID });
-                return;
-              }
-              setIsComposing((open) => !open);
-            }}
-          >
-            <Plus strokeWidth={2} />
-          </Button>
-        )}
-        {(canWrite || canEditSettings) && (
-          <ColumnMenu
-            title={column.title}
-            triggerRef={menuTrigger}
-            canWrite={canWrite}
-            canEditSettings={canEditSettings}
-            onRename={() => setIsEditingTitle(true)}
-            onSettings={() => setIsEditingSettings(true)}
-            onDelete={() => setIsDeleting(true)}
-          />
-        )}
+          )}
+        </div>
+        <CategoryLine category={column.category} exceeded={wipExceeded} />
       </div>
       <Droppable droppableId={cardsDroppableId(column.id)} type={CARD_DRAG_TYPE}>
         {(droppableProvided, droppableSnapshot) => (
@@ -210,9 +246,13 @@ export function BoardColumn({
             {...droppableProvided.droppableProps}
             role={visibleCards.length > 0 ? 'list' : undefined}
             aria-label={visibleCards.length > 0 ? `Cards in ${column.title}` : undefined}
+            data-testid="card-list"
             className={cn(
-              'flex min-h-24 flex-1 flex-col overflow-y-auto rounded-md px-0.5 pt-0.5 transition-colors',
-              droppableSnapshot.isDraggingOver && 'bg-primary-subtle/60',
+              // The list reaches 6 px past the column on each side, so that a highlighted
+              // background frames the cards while they stay aligned with the header.
+              '-mx-1.5 flex min-h-24 flex-1 flex-col overflow-y-auto rounded-lg px-1.5 pt-1.5 transition-colors',
+              wipExceeded && 'bg-danger-subtle',
+              droppableSnapshot.isDraggingOver && 'bg-primary-subtle',
             )}
           >
             {visibleCards.map((card, index) => (
@@ -252,16 +292,15 @@ export function BoardColumn({
                   <Skeleton
                     key={index}
                     data-testid="card-skeleton"
-                    className="h-[76px] rounded-md bg-surface"
+                    className="h-[76px] rounded-lg"
                   />
                 ))}
               </div>
             )}
             {visibleCards.length === 0 && !isLoadingCards && !droppableSnapshot.isDraggingOver && (
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-subtle">
-                <CircleSlash aria-hidden="true" className="size-4" strokeWidth={2} />
-                <p className="text-xs font-semibold tracking-[0.04em] uppercase">No cards</p>
-              </div>
+              <p className="flex h-[72px] shrink-0 items-center justify-center rounded-lg border border-dashed border-border font-mono text-xs text-muted">
+                No cards
+              </p>
             )}
           </div>
         )}
@@ -272,6 +311,7 @@ export function BoardColumn({
           columnTitle={column.title}
           onClose={closeComposer}
           isHidden={isCardHidden}
+          inputRef={composerInput}
         />
       )}
       {canEditSettings && (
@@ -328,7 +368,7 @@ function ColumnMenu({
           variant="ghost"
           size="icon-sm"
           aria-label={`Actions for column ${title}`}
-          className="text-subtle"
+          className="size-7"
         >
           <Ellipsis strokeWidth={2} />
         </Button>

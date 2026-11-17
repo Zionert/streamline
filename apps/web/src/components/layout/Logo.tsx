@@ -1,23 +1,21 @@
 import { cn } from '@/lib/utils';
 
-/** StreamLine mark: a rhombus with an arrow pointing right, drawn in the primary colour. */
+/**
+ * StreamLine mark: three vertical bars of decreasing height (a stream thinning out), in the
+ * accent, text and muted text colours.
+ */
 export function LogoMark({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 16 16"
       aria-hidden="true"
       focusable="false"
-      className={cn('size-6 text-primary', className)}
+      data-testid="logo-mark"
+      className={cn('size-4 shrink-0', className)}
     >
-      <path d="M12 1.5 22.5 12 12 22.5 1.5 12Z" fill="currentColor" />
-      <path
-        d="M7.5 12h8M12.5 8.5 16 12l-3.5 3.5"
-        fill="none"
-        stroke="var(--primary-foreground)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <rect x="1" y="1" width="3" height="14" rx="1" className="fill-primary" />
+      <rect x="6.5" y="4" width="3" height="11" rx="1" className="fill-text" />
+      <rect x="12" y="7" width="3" height="8" rx="1" className="fill-muted" />
     </svg>
   );
 }
@@ -27,7 +25,7 @@ export function Logo({ className }: { className?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-2', className)}>
       <LogoMark />
-      <span className="text-lg font-semibold text-foreground">StreamLine</span>
+      <span className="text-[15px] font-semibold text-foreground">StreamLine</span>
     </span>
   );
 }

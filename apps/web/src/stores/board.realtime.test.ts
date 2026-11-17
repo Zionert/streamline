@@ -1,10 +1,4 @@
-import type {
-  BoardEvent,
-  BoardEventName,
-  BoardEventPayloads,
-  Card,
-  PresenceUser,
-} from '@streamline/shared';
+import type { BoardEvent, BoardEventName, BoardEventPayloads, Card } from '@streamline/shared';
 import { describe, expect, it } from 'vitest';
 
 import { cardsOf } from '@/features/cards/cardOrder';
@@ -494,23 +488,12 @@ describe('resyncBoard', () => {
   });
 });
 
-describe('forgetBoard and presence', () => {
-  const ann: PresenceUser = { id: 'user-9', name: 'Ann' };
-
+describe('forgetBoard', () => {
   it('forgets the opened board and removes it from the list', async () => {
     await openBoard();
 
     state().forgetBoard('board-1');
 
     expect(state()).toMatchObject({ boardId: null, board: null, boards: [] });
-  });
-
-  it('keeps presence of the opened board only', async () => {
-    await openBoard();
-
-    state().setPresence('board-2', [ann]);
-    expect(state().presence).toEqual([]);
-    state().setPresence('board-1', [ann]);
-    expect(state().presence).toEqual([ann]);
   });
 });

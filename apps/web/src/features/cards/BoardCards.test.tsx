@@ -59,7 +59,7 @@ async function renderBoard(
     data: cardListFor(columns, options.cards ?? initialCards),
   });
   const result = renderApp(options.path ?? BOARD);
-  await screen.findByRole('heading', { level: 1, name: 'Board' });
+  await screen.findByRole('heading', { level: 1, name: 'Sprint board' });
   await screen.findAllByRole('button', { name: /^SB-\d/ });
   return result;
 }
@@ -114,7 +114,7 @@ describe('cards on the board', () => {
     await renderBoard('MEMBER', { cards: [...initialCards, ...extra] });
 
     expect(cardKeysIn('To Do')).toEqual(['SB-1', 'SB-2']);
-    expect(within(columnRegion('To Do')).getByText('(2)')).toBeInTheDocument();
+    expect(within(columnRegion('To Do')).getByLabelText('2 cards')).toBeInTheDocument();
     // In Progress has a WIP limit of 3 and four cards.
     const progress = columnRegion('In Progress');
     expect(within(progress).getByLabelText('WIP 4 of 3, limit exceeded')).toBeInTheDocument();
@@ -137,7 +137,7 @@ describe('cards on the board', () => {
     mock.current.on('GET', CARDS, () => reply.promise);
     renderApp(BOARD);
 
-    await screen.findByRole('heading', { level: 1, name: 'Board' });
+    await screen.findByRole('heading', { level: 1, name: 'Sprint board' });
     expect(screen.getAllByTestId('card-skeleton')).toHaveLength(8);
     expect(screen.queryByText('No cards')).toBeNull();
     reply.resolve({ status: 200, data: cardListFor(defaultColumns(), initialCards) });
@@ -211,7 +211,7 @@ describe('quick create', () => {
       title: 'Ship it',
     });
     expect(input).toHaveValue('');
-    expect(within(columnRegion('Done')).getByText('(1)')).toBeInTheDocument();
+    expect(within(columnRegion('Done')).getByLabelText('1 cards')).toBeInTheDocument();
 
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByRole('form', { name: 'Add a card to Done' })).toBeNull();
@@ -243,7 +243,7 @@ describe('quick create', () => {
       'SB-4 was created, but it is hidden by the current filter.',
     );
     expect(cardKeysIn('To Do')).toEqual(['SB-1']);
-    expect(within(columnRegion('To Do')).getByText('(3)')).toBeInTheDocument();
+    expect(within(columnRegion('To Do')).getByLabelText('3 cards')).toBeInTheDocument();
   });
 
   it('refreshes the board when the column was deleted elsewhere', async () => {
@@ -390,7 +390,7 @@ describe('filtering cards', () => {
     expect(cardKeysIn('To Do')).toEqual(['SB-1']);
     expect(cardKeysIn('In Progress')).toEqual([]);
     // Counters keep showing all cards of the column.
-    expect(within(columnRegion('To Do')).getByText('(2)')).toBeInTheDocument();
+    expect(within(columnRegion('To Do')).getByLabelText('2 cards')).toBeInTheDocument();
     expect(within(columnRegion('In Progress')).getByText('No cards')).toBeInTheDocument();
     expect(tile('SB-1')).not.toHaveAttribute('data-rfd-drag-handle-draggable-id');
     expect(screen.getByText('Clear the filter to drag cards.')).toBeVisible();
