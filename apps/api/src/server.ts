@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 
+import { createLlmProvider } from './ai/create-llm-provider.js';
 import { loadConfig } from './config/env.js';
 import { createLogger } from './config/logger.js';
 import { createDbClient } from './repositories/db.js';
@@ -12,7 +13,17 @@ if (existsSync('.env')) {
 const config = loadConfig();
 const logger = createLogger(config);
 const db = createDbClient(config.DATABASE_URL);
-const { httpServer, realtime } = createStreamLineServer({ config, logger, db });
+const llm = createLlmProvider(config);
+if (llm && config.LLM_BASE_URL) {
+  // The URL host only: the base URL could carry credentials in its query string.
+  logger.info(
+    { model: llm.model, host: new URL(config.LLM_BASE_URL).host },
+    'AI assistant enabled',
+  );
+} else {
+  logger.info('AI assistant disabled (AI_ENABLED is not true)');
+}
+const { httpServer, realtime } = createStreamLineServer({ config, logger, db, llm });
 
 httpServer.once('error', (error) => {
   logger.fatal({ err: error }, 'Failed to start HTTP server');

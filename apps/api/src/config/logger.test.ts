@@ -36,4 +36,17 @@ describe('createLogger', () => {
 
     expect(output()).not.toMatch(/hunter22|"jwt"|"rt"/);
   });
+
+  it('redacts the model provider API key', () => {
+    const { logger, output } = captureLogger();
+
+    logger.info({ LLM_API_KEY: 'sk-top-level' });
+    logger.info({
+      config: { LLM_API_KEY: 'sk-in-config' },
+      provider: { apiKey: 'sk-in-provider' },
+    });
+    logger.info({ llm: { options: { apiKey: 'sk-in-options' } } });
+
+    expect(output()).not.toMatch(/sk-top-level|sk-in-config|sk-in-provider|sk-in-options/);
+  });
 });

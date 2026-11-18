@@ -1,0 +1,11 @@
+: Gemini OpenAI-compatible endpoint (v1beta/openai): the role is repeated in every delta, there is
+: no logprobs or system_fingerprint, finish_reason and usage come in the last content chunk.
+
+data: {"choices":[{"delta":{"content":"Час циклу — це","role":"assistant"},"index":0}],"created":1795030200,"id":"aCQaacT7LuKbz7IPq5Ce4AQ","model":"gemini-2.5-flash","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" час від початку роботи над задачею до її завершення.","role":"assistant"},"index":0}],"created":1795030200,"id":"aCQaacT7LuKbz7IPq5Ce4AQ","model":"gemini-2.5-flash","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":" Він допомагає прогнозувати, коли команда завершить наступні задачі.","role":"assistant"},"finish_reason":"stop","index":0}],"created":1795030200,"id":"aCQaacT7LuKbz7IPq5Ce4AQ","model":"gemini-2.5-flash","object":"chat.completion.chunk","usage":{"completion_tokens":34,"prompt_tokens":17,"total_tokens":51}}
+
+data: [DONE]
+

@@ -3,6 +3,7 @@ import { pino } from 'pino';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
+import { MockLlmProvider } from './ai/mock-llm-provider.js';
 import { createApp } from './app.js';
 import { loadConfig } from './config/env.js';
 import { createDbClient } from './repositories/db.js';
@@ -65,5 +66,24 @@ describe('error handling', () => {
 
     expect(response.status).toBe(400);
     expect(errorResponseSchema.parse(response.body).error.code).toBe('BAD_REQUEST');
+  });
+});
+
+describe('AI assistant provider', () => {
+  it('builds the app with an injected model provider', async () => {
+    const app = createApp({
+      config: loadConfig({
+        DATABASE_URL: UNUSED_DATABASE_URL,
+        JWT_ACCESS_SECRET: 'x'.repeat(32),
+        AI_ENABLED: 'true',
+        LLM_BASE_URL: 'http://localhost:11434/v1',
+        LLM_MODEL: 'mock-model',
+      }),
+      logger: pino({ level: 'silent' }),
+      db: createDbClient(UNUSED_DATABASE_URL),
+      llm: new MockLlmProvider(),
+    });
+
+    expect((await request(app).get('/health')).status).toBe(200);
   });
 });
