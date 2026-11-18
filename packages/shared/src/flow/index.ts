@@ -5,6 +5,8 @@ export {
   addDays,
   dateRange,
   daysBetween,
+  instantOnLocalDate,
+  isValidTimeZone,
   startOfIsoWeek,
   toLocalDateKey,
 } from './dates.js';

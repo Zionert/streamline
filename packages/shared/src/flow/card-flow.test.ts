@@ -249,3 +249,26 @@ describe('sortTransitions', () => {
     expect(sorted.map((s) => s.toCategory)).toEqual(['BACKLOG', 'TODO', 'IN_PROGRESS']);
   });
 });
+
+describe('deriveCardFlow on its own result', () => {
+  it('returns a derived flow unchanged and freezes it', () => {
+    const flow = deriveCardFlow(
+      flowCard('c1', [
+        ['2026-01-01T00:00:00Z', 'TODO'],
+        ['2026-01-02T00:00:00Z', 'IN_PROGRESS'],
+        ['2026-01-04T00:00:00Z', 'DONE'],
+      ]),
+    );
+    expect(deriveCardFlow(flow)).toBe(flow);
+    expect(Object.isFrozen(flow)).toBe(true);
+    expect(Object.isFrozen(flow.transitions)).toBe(true);
+  });
+
+  it('derives a structurally equal copy again', () => {
+    const flow = deriveCardFlow(flowCard('c1', [['2026-01-01T00:00:00Z', 'TODO']]));
+    const copy = { cardId: flow.cardId, createdAt: flow.createdAt, transitions: flow.transitions };
+    const again = deriveCardFlow(copy);
+    expect(again).not.toBe(flow);
+    expect(again).toEqual(flow);
+  });
+});

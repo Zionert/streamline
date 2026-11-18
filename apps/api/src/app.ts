@@ -1,3 +1,4 @@
+import type { RandomSource } from '@streamline/shared';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
@@ -12,6 +13,7 @@ import { createRequireAuth } from './middleware/require-auth.js';
 import { createRequireBoardPermission } from './middleware/require-board-permission.js';
 import { noopBoardEvents, type BoardEvents } from './realtime/board-events.js';
 import { createActivityRepository } from './repositories/activity.repository.js';
+import { createAnalyticsRepository } from './repositories/analytics.repository.js';
 import { createBoardMemberRepository } from './repositories/board-member.repository.js';
 import { createBoardRepository } from './repositories/board.repository.js';
 import { createCardRepository } from './repositories/card.repository.js';
@@ -23,6 +25,7 @@ import { createRefreshTokenRepository } from './repositories/refresh-token.repos
 import { createUserRepository } from './repositories/user.repository.js';
 import { createRouter } from './routes/index.js';
 import { createActivityService } from './services/activity.service.js';
+import { createAnalyticsService } from './services/analytics.service.js';
 import { createAuthService } from './services/auth.service.js';
 import { createBoardAccessService } from './services/board-access.service.js';
 import { createBoardService } from './services/board.service.js';
@@ -42,6 +45,10 @@ export interface AppDependencies {
 export interface CreateAppOptions extends AppDependencies {
   /** Broadcasts committed board changes (no-op without a socket server, e.g. in REST tests). */
   events?: BoardEvents;
+  /** Current time used by the analytics ("today", age of cards); tests pass a fixed clock. */
+  now?: () => Date;
+  /** Random source of the Monte Carlo forecast (`Math.random`); tests pass a seeded one. */
+  random?: RandomSource;
 }
 
 /** Builds the Express application (wiring repositories and services) without starting the server. */
@@ -50,6 +57,8 @@ export function createApp({
   logger,
   db,
   events = noopBoardEvents,
+  now = () => new Date(),
+  random = Math.random,
 }: CreateAppOptions): Express {
   const tokens = createTokenService(config);
   const users = createUserRepository(db);
@@ -75,6 +84,11 @@ export function createApp({
   const labelService = createLabelService({ labels: createLabelRepository(db), events });
   const commentService = createCommentService({ comments: createCommentRepository(db), events });
   const activityService = createActivityService({ activities: createActivityRepository(db) });
+  const analyticsService = createAnalyticsService({
+    analytics: createAnalyticsRepository(db),
+    now,
+    random,
+  });
 
   const app = express();
 
@@ -93,6 +107,7 @@ export function createApp({
       labelService,
       commentService,
       activityService,
+      analyticsService,
       requireAuth: createRequireAuth(tokens),
       requireBoardPermission: createRequireBoardPermission(boardAccess),
       config,

@@ -5,6 +5,8 @@ import {
   assertValidTimeZone,
   dateRange,
   daysBetween,
+  instantOnLocalDate,
+  isValidTimeZone,
   resolveDateRange,
   startOfIsoWeek,
   toLocalDateKey,
@@ -112,5 +114,46 @@ describe('resolveDateRange', () => {
     expect(
       codeOf(() => resolveDateRange(new Date('2026-01-02'), new Date('2026-01-01'), 'UTC')),
     ).toBe('INVALID_ARGUMENT');
+  });
+});
+
+describe('isValidTimeZone', () => {
+  it('accepts IANA zones and rejects anything else', () => {
+    expect(isValidTimeZone('UTC')).toBe(true);
+    expect(isValidTimeZone('Europe/Warsaw')).toBe(true);
+    expect(isValidTimeZone('Mars/Olympus')).toBe(false);
+    expect(isValidTimeZone('')).toBe(false);
+    expect(isValidTimeZone(42)).toBe(false);
+  });
+});
+
+describe('instantOnLocalDate', () => {
+  it.each([
+    'UTC',
+    'Europe/Warsaw',
+    'America/Los_Angeles',
+    'Pacific/Kiritimati', // UTC+14
+    'Etc/GMT+12', // UTC-12
+    'Asia/Kathmandu', // UTC+5:45
+  ])('returns an instant on the requested local date in %s', (timeZone) => {
+    for (const key of ['2026-01-01', '2026-03-29', '2026-10-25', '2026-12-31']) {
+      expect(toLocalDateKey(instantOnLocalDate(key, timeZone), timeZone)).toBe(key);
+    }
+  });
+
+  it('defaults to UTC', () => {
+    expect(instantOnLocalDate('2026-11-17').toISOString()).toBe('2026-11-17T12:00:00.000Z');
+  });
+
+  it('rejects malformed keys, unknown zones and dates skipped by the zone', () => {
+    expect(codeOf(() => instantOnLocalDate('2026-02-30'))).toBe('INVALID_ARGUMENT');
+    expect(codeOf(() => instantOnLocalDate('2026-11-17', 'Nowhere/City'))).toBe(
+      'INVALID_TIME_ZONE',
+    );
+    // Samoa moved across the date line and skipped 30 December 2011.
+    expect(codeOf(() => instantOnLocalDate('2011-12-30', 'Pacific/Apia'))).toBe('INVALID_ARGUMENT');
+    expect(toLocalDateKey(instantOnLocalDate('2011-12-31', 'Pacific/Apia'), 'Pacific/Apia')).toBe(
+      '2011-12-31',
+    );
   });
 });
