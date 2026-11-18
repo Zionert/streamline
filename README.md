@@ -5,10 +5,8 @@ tablice Kanban z obsługą drag & drop, synchronizacją w czasie rzeczywistym or
 wbudowaną analityką przepływu pracy.
 
 Projekt realizowany w ramach pracy dyplomowej inżynierskiej
-(Akademia im. Jakuba z Paradyża w Gorzowie Wielkopolskim).
 
 **Autorzy:** Nazar Bulyha, Andrii Shkraiev
-**Promotor:** dr inż. Magdalena Krakowiak
 
 ## Funkcjonalności
 - Rejestracja i logowanie (JWT z rotacją refresh tokenów)
