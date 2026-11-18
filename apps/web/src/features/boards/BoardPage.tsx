@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { isFilterActive, type CardFilter } from '@/features/cards/cardFilter';
+import { useCardAging } from '@/features/cards/useCardAging';
 import { LabelFilter } from '@/features/labels/LabelFilter';
 import { useBoardRealtime } from '@/features/realtime/useBoardRealtime';
 import { useBoardStore } from '@/stores/board';
@@ -27,6 +28,7 @@ import { BoardColumns } from './BoardColumns';
 import { BoardLoadError, BoardNotFound } from './BoardStatusViews';
 import { newCardColumn } from './newCardColumn';
 import { BOARDS_PATH, cardPath, type CardLocationState } from './paths';
+import { useOpenBoard } from './useOpenBoard';
 
 /** Toast id of the board notice: a newer notice replaces the previous one, like a banner. */
 const NOTICE_TOAST_ID = 'board-notice';
@@ -43,10 +45,7 @@ export function BoardPage() {
   const status = useBoardStore((state) => state.boardStatus);
   const error = useBoardStore((state) => state.boardError);
   const openBoard = useBoardStore((state) => state.openBoard);
-
-  useEffect(() => {
-    void openBoard(boardId);
-  }, [boardId, openBoard]);
+  useOpenBoard(boardId);
 
   if (status === 'not-found' && openedId === boardId) {
     return <BoardNotFound />;
@@ -98,6 +97,7 @@ function BoardView({ board }: { board: Board }) {
   const reloadCards = useBoardStore((state) => state.reloadCards);
   const dismissNotice = useBoardStore((state) => state.dismissNotice);
   const navigate = useNavigate();
+  const agingByCardId = useCardAging(board.id);
   const [filterText, setFilterText] = useState('');
   const [activeMemberIds, setActiveMemberIds] = useState<ReadonlySet<string>>(() => new Set());
   const [selectedLabelIds, setSelectedLabelIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -226,6 +226,7 @@ function BoardView({ board }: { board: Board }) {
             isCardDragDisabled={isMovingCard || filtering}
             membersById={membersById}
             labelsById={labelsById}
+            agingByCardId={agingByCardId}
             onMoveCard={(cardId, toColumnId, toIndex) => void moveCard(cardId, toColumnId, toIndex)}
             onOpenCard={openCard}
             onComposerRef={registerComposer}

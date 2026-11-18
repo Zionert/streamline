@@ -19,6 +19,7 @@ export function createAnalyticsRouter({
   const router = Router({ mergeParams: true });
 
   router.get('/', can('board:view'), controller.get);
+  router.get('/aging', can('board:view'), controller.aging);
   router.get('/forecast', can('board:view'), controller.forecast);
 
   return router;

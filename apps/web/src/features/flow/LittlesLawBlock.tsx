@@ -4,14 +4,30 @@ import { useId } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-import { NO_VALUE, formatDays, formatDecimal, formatSignedPercent } from './flowFormat';
+import {
+  NO_VALUE,
+  formatDateRange,
+  formatDays,
+  formatDecimal,
+  formatSignedPercent,
+  pluralize,
+} from './flowFormat';
 import { LITTLES_LAW_MESSAGES, littlesLawVerdict } from './flowMetrics';
 
 /**
  * Little's law check: the measured average work in progress against the one predicted from
  * throughput and cycle time, with a plain-language verdict.
  */
-export function LittlesLawBlock({ law }: { law: AnalyticsResponse['littlesLaw'] }) {
+export function LittlesLawBlock({
+  law,
+  range,
+  days,
+}: {
+  law: AnalyticsResponse['littlesLaw'];
+  range: AnalyticsResponse['range'];
+  /** Number of days of the range. */
+  days: number;
+}) {
   const titleId = useId();
   const verdict = littlesLawVerdict(law);
   const predicted = law.predictedWip === null ? NO_VALUE : formatDecimal(law.predictedWip);
@@ -39,6 +55,9 @@ export function LittlesLawBlock({ law }: { law: AnalyticsResponse['littlesLaw'] 
           </Badge>
         )}
       </div>
+      <p className="text-xs text-subtle" data-testid="littles-law-period">
+        Averages over {formatDateRange(range.from, range.to)} ({pluralize(days, 'day')}).
+      </p>
       <p className="text-sm" data-verdict={verdict}>
         {LITTLES_LAW_MESSAGES[verdict]}
       </p>

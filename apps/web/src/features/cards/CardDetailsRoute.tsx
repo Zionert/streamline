@@ -106,6 +106,8 @@ function CardDetails({ boardId, cardKey, paths }: CardDetailsProps) {
 
   const location = useLocation();
   const locationState: unknown = location.state;
+  // The query belongs to the page behind the card (e.g. the date range of Flow).
+  const { search } = location;
 
   // Opened from the page behind it: going back removes the card from the history, so the
   // browser's Back button does not reopen it. Opened from a link: the card's entry is replaced
@@ -114,11 +116,11 @@ function CardDetails({ boardId, cardKey, paths }: CardDetailsProps) {
     if (isOpenedFromBoard(locationState)) {
       void navigate(-1);
     } else {
-      void navigate(paths.pagePath(boardId), { replace: true });
+      void navigate(`${paths.pagePath(boardId)}${search}`, { replace: true });
     }
-  }, [locationState, navigate, paths, boardId]);
+  }, [locationState, navigate, paths, boardId, search]);
 
-  const rekeyedPath = rekeyedCard ? paths.cardPath(boardId, rekeyedCard.key) : null;
+  const rekeyedPath = rekeyedCard ? `${paths.cardPath(boardId, rekeyedCard.key)}${search}` : null;
   useEffect(() => {
     if (rekeyedPath !== null) {
       void navigate(rekeyedPath, { replace: true, state: locationState });

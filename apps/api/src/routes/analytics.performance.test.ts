@@ -4,6 +4,7 @@ import {
   FORECAST_API_MAX_HORIZON_DAYS,
   FORECAST_MAX_REMAINING,
   addDays,
+  agingResponseSchema,
   analyticsResponseSchema,
   forecastResponseSchema,
   mulberry32,
@@ -118,6 +119,13 @@ describe(`analytics of a board with ${String(CARD_COUNT)} cards`, () => {
     const duration = await timed(`/boards/${fx.boardId}/analytics${query}`, (body) =>
       analyticsResponseSchema.parse(body),
     );
+    expect(duration).toBeLessThan(MAX_DURATION_MS);
+  });
+
+  it(`GET /analytics/aging takes less than ${String(MAX_DURATION_MS)} ms`, async () => {
+    const duration = await timed(`/boards/${fx.boardId}/analytics/aging`, (body) => {
+      expect(agingResponseSchema.parse(body).items.length).toBeGreaterThan(0);
+    });
     expect(duration).toBeLessThan(MAX_DURATION_MS);
   });
 

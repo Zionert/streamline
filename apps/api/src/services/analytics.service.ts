@@ -17,6 +17,7 @@ import {
   littlesLaw,
   throughput,
   toLocalDateKey,
+  type AgingResponse,
   type AnalyticsQuery,
   type AnalyticsResponse,
   type CardFlow,
@@ -53,6 +54,11 @@ export interface AnalyticsService {
    * of the query, plus the current aging work in progress.
    */
   getAnalytics(membership: BoardMembership, query: AnalyticsQuery): Promise<AnalyticsResponse>;
+  /**
+   * Only the current aging work in progress (the age of every card in an IN_PROGRESS column),
+   * with the same threshold as `getAnalytics`; independent of any range or time zone.
+   */
+  getAging(membership: BoardMembership): Promise<AgingResponse>;
   /** Monte Carlo forecast from the daily throughput of the last complete days. */
   forecast(membership: BoardMembership, query: ForecastQuery): Promise<ForecastResponse>;
 }
@@ -120,6 +126,41 @@ function deriveBoardFlows(data: BoardFlowData): BoardFlows {
   };
 }
 
+type AgingDetails = AnalyticsResponse['aging'];
+
+/**
+ * Aging work in progress at `now`. The threshold uses the cycle times of all completed cards, not
+ * only those of a range: aging is a statement about the current work, and a short range would
+ * give a noisy p85.
+ */
+function agingOf(
+  { data, flows, flowById, cardById, columnById }: BoardFlows,
+  now: Date,
+): AgingDetails {
+  const aging = agingWip(flows, { now });
+  return {
+    thresholdDays: aging.thresholdDays,
+    items: aging.items.flatMap((item) => {
+      const card = cardById.get(item.cardId);
+      const cycleStartedAt = flowById.get(item.cardId)?.cycleStartedAt;
+      if (!card || !cycleStartedAt) return [];
+      return [
+        {
+          cardId: card.id,
+          cardKey: formatCardKey(data.boardKey, card.number),
+          title: card.title,
+          columnId: card.columnId,
+          columnName: columnById.get(card.columnId)?.title ?? '',
+          assignee: card.assignee,
+          cycleStartedAt: cycleStartedAt.toISOString(),
+          ageDays: item.ageDays,
+          isAging: item.isAging,
+        },
+      ];
+    }),
+  };
+}
+
 /** Resolves the defaults of the analytics range and checks it (also when only `from` is given). */
 function resolveRange(
   query: AnalyticsQuery,
@@ -180,15 +221,13 @@ export function createAnalyticsService({
       const from = localDay(fromKey, timeZone, 'from');
       const to = localDay(toKey, timeZone, 'to');
 
-      const { data, flows, flowById, cardById, columnById } = await load(membership.boardId);
+      const boardFlows = await load(membership.boardId);
+      const { data, flows, cardById } = boardFlows;
       const keyOf = (card: FlowCardRecord | undefined) =>
         card ? formatCardKey(data.boardKey, card.number) : '';
       const range = { from, to, timeZone };
 
       const leadCycle = leadCycleStats(flows, range);
-      // The threshold uses the cycle times of all completed cards, not only those of the range:
-      // aging is a statement about the current work, and a short range would give a noisy p85.
-      const aging = agingWip(flows, { now: generatedAt });
       const law = littlesLaw(flows, range);
 
       return {
@@ -217,27 +256,7 @@ export function createAnalyticsService({
           })),
         },
         cumulativeFlow: cumulativeFlow(flows, range),
-        aging: {
-          thresholdDays: aging.thresholdDays,
-          items: aging.items.flatMap((item) => {
-            const card = cardById.get(item.cardId);
-            const cycleStartedAt = flowById.get(item.cardId)?.cycleStartedAt;
-            if (!card || !cycleStartedAt) return [];
-            return [
-              {
-                cardId: card.id,
-                cardKey: keyOf(card),
-                title: card.title,
-                columnId: card.columnId,
-                columnName: columnById.get(card.columnId)?.title ?? '',
-                assignee: card.assignee,
-                cycleStartedAt: cycleStartedAt.toISOString(),
-                ageDays: item.ageDays,
-                isAging: item.isAging,
-              },
-            ];
-          }),
-        },
+        aging: agingOf(boardFlows, generatedAt),
         littlesLaw: {
           avgWip: law.avgWip,
           avgThroughputPerDay: law.avgThroughputPerDay,
@@ -245,6 +264,22 @@ export function createAnalyticsService({
           predictedWip: law.predictedWip,
           relativeError: law.relativeError,
         },
+      };
+    },
+
+    async getAging(membership) {
+      assertBoardPermission(membership, 'board:view');
+      const generatedAt = now();
+      const { thresholdDays, items } = agingOf(await load(membership.boardId), generatedAt);
+      return {
+        generatedAt: generatedAt.toISOString(),
+        thresholdDays,
+        items: items.map(({ cardId, cycleStartedAt, ageDays, isAging }) => ({
+          cardId,
+          cycleStartedAt,
+          ageDays,
+          isAging,
+        })),
       };
     },
 

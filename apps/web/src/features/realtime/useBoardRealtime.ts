@@ -14,6 +14,8 @@ import { clearActiveSocket, createSocket, setActiveSocket } from '@/lib/socket';
 import { useAuthStore } from '@/stores/auth';
 import { useBoardStore } from '@/stores/board';
 
+import { publishBoardChange } from './boardChanges';
+
 /** Toast id for losing access: several signals (event, join, reload) show one message. */
 const ACCESS_TOAST_ID = 'board-access-lost';
 const LIVE_UPDATES_TOAST_ID = 'live-updates-unavailable';
@@ -51,6 +53,8 @@ function handshakeErrorCode(error: Error): string | undefined {
  * - The server disconnects the socket when its access token expires; the hook reconnects.
  * - Losing access (removed from the board, board deleted, or a reload answering 403/404) leaves
  *   the page for the board list with a toast.
+ * - Applied events and every join after a reconnect are published as board changes
+ *   (`boardChanges.ts`), for data the store does not hold (e.g. the age of cards in progress).
  */
 export function useBoardRealtime(boardId: string): void {
   const userId = useAuthStore((state) => state.user?.id ?? null);
@@ -70,6 +74,8 @@ export function useBoardRealtime(boardId: string): void {
     let active = true;
     let authRetries = 0;
     let joinRetried = false;
+    /** The room has been joined once already: a later join follows a reconnect. */
+    let hasJoined = false;
     let joinRetryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const loseAccess = (message: string) => {
@@ -96,6 +102,10 @@ export function useBoardRealtime(boardId: string): void {
         }
         if (ack.ok) {
           joinRetried = false;
+          if (hasJoined) {
+            publishBoardChange(boardId, { type: 'rejoined' });
+          }
+          hasJoined = true;
           void store()
             .resyncBoard(boardId)
             .then((result) => {
@@ -169,6 +179,7 @@ export function useBoardRealtime(boardId: string): void {
         loseAccess(BOARD_DELETED_MESSAGE);
       } else {
         store().applyBoardEvent(event);
+        publishBoardChange(boardId, { type: 'remote', event });
       }
     });
 

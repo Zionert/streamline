@@ -25,6 +25,7 @@ import { deferred, errorBody, type MockResponder } from '@/test/mockAdapter';
 import { renderApp, setupMockApi } from '@/test/renderApp';
 
 import { browserTimeZone } from './flowFormat';
+import { localToday } from './flowRange';
 import { targetDateBounds } from './forecastInput';
 
 const mock = setupMockApi();
@@ -130,12 +131,13 @@ describe('Flow page route', () => {
     await analyticsShown();
 
     expect(screen.getByText('SB', { selector: '[data-slot="badge"]' })).toBeInTheDocument();
-    const range = screen.getByRole('button', { name: 'Last 30 days' });
-    expect(range).toHaveAttribute('aria-disabled', 'true');
-    expect(range).toHaveAttribute('aria-description', 'Custom ranges are coming soon');
+    expect(screen.getByRole('button', { name: 'Date range: Last 30 days' })).toBeEnabled();
     expect(screen.getByText(browserTimeZone())).toBeInTheDocument();
-    // The default range of the API: no `from` / `to`, only the time zone.
+    // The default range: the last 30 days ending today in the browser's time zone.
+    const today = localToday(browserTimeZone());
     expect(mock.current.requestsTo('GET', ANALYTICS)[0]?.params).toEqual({
+      from: addDays(today, -29),
+      to: today,
       timeZone: browserTimeZone(),
     });
   });
@@ -222,12 +224,16 @@ describe('Flow page route', () => {
   it('replaces the charts with an empty state when nothing was completed', async () => {
     await renderFlow(FLOW, { analytics: [ok(emptyAnalytics())] });
 
-    expect(await screen.findByRole('heading', { name: 'No completed work yet' })).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'No completed work in this period' }),
+    ).toBeVisible();
     expect(
       screen.getByText(
-        'Flow charts appear once cards reach a Done column. Move a few cards through In progress to Done.',
+        'No card reached a Done column 19 Oct – 17 Nov. Flow charts appear once cards reach a Done column — choose a longer range, or move a few cards through In progress to Done.',
       ),
     ).toBeInTheDocument();
+    // Nothing to export.
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
     expect(screen.getByRole('link', { name: 'Go to board' })).toHaveAttribute('href', BOARD);
     // The key figures still render; the charts and the forecast do not.
     expect(screen.getAllByTestId('kpi-tile')).toHaveLength(4);
@@ -482,7 +488,9 @@ describe('throughput chart', () => {
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(6);
     expect(rows[1]).toHaveTextContent('19 Oct 2026');
-    expect(within(chart).getByRole('img')).toHaveAccessibleName(/^Throughput per week: 7 cards/);
+    expect(within(chart).getByRole('img')).toHaveAccessibleName(
+      /^Throughput per week, 19 Oct – 17 Nov: 7 cards/,
+    );
   });
 });
 

@@ -62,10 +62,11 @@ export function throughputSeries(
   return { bars, average, averageLabel };
 }
 
-/** Text alternative of the throughput chart. */
+/** Text alternative of the throughput chart; with `range`, it names the dates as well. */
 export function throughputSummary(
   series: ThroughputSeries,
   granularity: ThroughputGranularity,
+  range?: { from: string; to: string },
 ): string {
   const total = series.bars.reduce((sum, bar) => sum + bar.count, 0);
   const unit = granularity === 'day' ? 'day' : 'week';
@@ -73,8 +74,9 @@ export function throughputSummary(
     (best, bar) => (best === null || bar.count > best.count ? bar : best),
     null,
   );
+  const dates = range ? `, ${formatDateRange(range.from, range.to)}` : '';
   const parts = [
-    `Throughput per ${unit}: ${pluralize(total, 'card')} completed over ${pluralize(series.bars.length, unit)}`,
+    `Throughput per ${unit}${dates}: ${pluralize(total, 'card')} completed over ${pluralize(series.bars.length, unit)}`,
     series.averageLabel.replace('avg', 'average'),
   ];
   if (peak && peak.count > 0) {

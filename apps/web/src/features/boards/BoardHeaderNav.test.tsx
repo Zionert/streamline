@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { useAuthStore } from '@/stores/auth';
+import { useBoardStore } from '@/stores/board';
 import {
   boardWith,
   cardListFor,
@@ -109,8 +110,9 @@ describe('top bar on a board page', () => {
     expect(within(views()).getByRole('link', { name: 'Board' })).not.toHaveAttribute(
       'aria-current',
     );
-    // The board was already open: it is not loaded again.
-    expect(mock.current.requestsTo('GET', BOARD)).toHaveLength(1);
+    // The board was already open: it stays on screen and is refreshed in the background.
+    expect(useBoardStore.getState().boardStatus).toBe('ready');
+    await waitFor(() => expect(mock.current.requestsTo('GET', BOARD)).toHaveLength(2));
   });
 
   it('opens the board history from the Activity tab and returns focus to it', async () => {

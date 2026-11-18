@@ -5,7 +5,7 @@ import { Avatar, type AvatarStackPerson } from '@/components/ui/avatar';
 import { LabelDot } from '@/features/labels/LabelPill';
 import { cn } from '@/lib/utils';
 
-import { cardTileLabel, isMarkedPriority } from './cardLabels';
+import { agingDescription, agingShortLabel, cardTileLabel, isMarkedPriority } from './cardLabels';
 import { PriorityFlag } from './priority';
 
 export interface CardTileProps extends Omit<ComponentProps<'div'>, 'children' | 'onClick'> {
@@ -20,13 +20,18 @@ export interface CardTileProps extends Omit<ComponentProps<'div'>, 'children' | 
   isDraggable?: boolean;
   /** The card is being dragged right now. */
   isDragging?: boolean;
+  /**
+   * Age in days of a card that is aging (in progress for longer than usual), shown as a badge;
+   * `null` when it is not aging or no longer in progress.
+   */
+  agingDays?: number | null;
 }
 
 const NO_LABELS: readonly Label[] = [];
 
 /**
  * A card on the board: title (two lines at most); labels (dot and name) and key; the priority
- * (HIGH and URGENT only) and the assignee. The whole tile is a button that opens the details and
+ * (HIGH and URGENT only), the aging badge and the assignee. The whole tile is a button that opens the details and
  * announces all of it (including LOW and MEDIUM priorities); when draggable it is also the drag
  * handle.
  */
@@ -37,6 +42,7 @@ export function CardTile({
   onOpen,
   isDraggable = false,
   isDragging = false,
+  agingDays = null,
   className,
   ...props
 }: CardTileProps) {
@@ -49,7 +55,7 @@ export function CardTile({
       onOpen();
     }
   };
-  const hasThirdRow = isMarkedPriority(card.priority) || assignee !== null;
+  const hasThirdRow = isMarkedPriority(card.priority) || agingDays !== null || assignee !== null;
 
   return (
     <div
@@ -60,6 +66,7 @@ export function CardTile({
         card,
         assignee?.name ?? null,
         labels.map((label) => label.name),
+        agingDays,
       )}
       data-card-key={card.key}
       onClick={onOpen}
@@ -89,6 +96,15 @@ export function CardTile({
       {hasThirdRow && (
         <div className="flex min-h-[22px] items-center gap-2">
           <PriorityFlag priority={card.priority} />
+          {agingDays !== null && (
+            <span
+              data-testid="card-aging"
+              title={agingDescription(agingDays)}
+              className="font-mono text-xs leading-4 text-warning-text"
+            >
+              Aging · {agingShortLabel(agingDays)}
+            </span>
+          )}
           {assignee && (
             <Avatar userId={assignee.userId} name={assignee.name} size="xs" className="ml-auto" />
           )}

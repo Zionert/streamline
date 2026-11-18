@@ -34,11 +34,12 @@ const GRANULARITY_OPTIONS: readonly { value: ThroughputGranularity; label: strin
 
 interface ThroughputChartProps {
   throughput: AnalyticsResponse['throughput'];
+  range: AnalyticsResponse['range'];
   colors: ChartColors;
 }
 
 /** Cards completed per day or per week (labelled by its Monday), with their average. */
-export function ThroughputChart({ throughput, colors }: ThroughputChartProps) {
+export function ThroughputChart({ throughput, range, colors }: ThroughputChartProps) {
   const [granularity, setGranularity] = useState<ThroughputGranularity>('day');
   const maxTicks = useMaxTicks();
   const series = throughputSeries(throughput, granularity);
@@ -75,7 +76,7 @@ export function ThroughputChart({ throughput, colors }: ThroughputChartProps) {
         <BarChart
           data={series.bars}
           role="img"
-          aria-label={throughputSummary(series, granularity)}
+          aria-label={throughputSummary(series, granularity, range)}
           accessibilityLayer={false}
           margin={CHART_MARGIN}
           className="font-mono"

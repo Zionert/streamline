@@ -1,10 +1,12 @@
 import {
   FORECAST_API_MAX_HORIZON_DAYS,
   addDays,
+  agingResponseSchema,
   analyticsResponseSchema,
   errorResponseSchema,
   forecastResponseSchema,
   mulberry32,
+  type AgingResponse,
   type AnalyticsResponse,
   type ForecastResponse,
 } from '@streamline/shared';
@@ -76,6 +78,7 @@ function appAt(now: Date): Express {
 const as = (actor: Actor): UserClient => client(app, fx.users[actor]);
 const analyticsPath = (query = '') => `/boards/${fx.boardId}/analytics${query}`;
 const forecastPath = (query: string) => `/boards/${fx.boardId}/analytics/forecast${query}`;
+const agingPath = () => `/boards/${fx.boardId}/analytics/aging`;
 const backlog = () => columnAt(fx, 0).id;
 const todo = () => columnAt(fx, 1).id;
 const inProgress = () => columnAt(fx, 2).id;
@@ -85,6 +88,12 @@ async function getAnalytics(query = '', actor: Actor = 'VIEWER'): Promise<Analyt
   const response = await as(actor).get(analyticsPath(query));
   expectStatus(response, 200);
   return analyticsResponseSchema.parse(response.body);
+}
+
+async function getAging(actor: Actor = 'VIEWER', at: Express = app): Promise<AgingResponse> {
+  const response = await client(at, fx.users[actor]).get(agingPath());
+  expectStatus(response, 200);
+  return agingResponseSchema.parse(response.body);
 }
 
 async function getForecast(query: string): Promise<ForecastResponse> {
@@ -470,6 +479,128 @@ describe('GET /analytics metrics', () => {
     const result = await getAnalytics();
     expect(result.aging.items).toEqual([]);
     expect(cfdOn(result, TODAY)).toMatchObject({ TODO: 2, IN_PROGRESS: 0 });
+  });
+});
+
+describe('GET /analytics/aging', () => {
+  /** Five cycle times of 1..5 days (p85 = 5 days), completed long ago. */
+  async function seedCompleted(count: number): Promise<void> {
+    await insertFlowCards(
+      db,
+      fx.boardId,
+      Array.from({ length: count }, (_, index) => ({
+        title: `Done ${String(index + 1)}`,
+        moves: [
+          ['2026-01-01T00:00:00Z', inProgress()],
+          [`2026-01-${String(2 + index).padStart(2, '0')}T00:00:00Z`, done()],
+        ],
+      })),
+    );
+  }
+
+  /** G: in progress for 10 days, H: for 2 days, I: in the backlog. */
+  async function seedWork() {
+    const cards = await insertFlowCards(db, fx.boardId, [
+      { title: 'G', moves: [['2026-11-07T12:00:00Z', inProgress()]] },
+      { title: 'H', moves: [['2026-11-15T12:00:00Z', inProgress()]] },
+      { title: 'I', moves: [['2026-11-10T12:00:00Z', backlog()]] },
+    ]);
+    return Object.fromEntries(cards.map((card) => [card.title, card]));
+  }
+
+  it('requires authentication and hides the board from non-members', async () => {
+    expectStatus(await request(app).get(agingPath()), 401, 'UNAUTHORIZED');
+    expectStatus(await as('OUTSIDER').get(agingPath()), 404, 'NOT_FOUND');
+    expectStatus(await as('OWNER').get('/boards/nope/analytics/aging'), 404, 'NOT_FOUND');
+  });
+
+  it.each(['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'] as const)('allows %s', async (actor) => {
+    expect(await getAging(actor)).toEqual({
+      generatedAt: NOW.toISOString(),
+      thresholdDays: null,
+      items: [],
+    });
+  });
+
+  it('returns the age of every card in progress, oldest first, flagged above the p85', async () => {
+    await seedCompleted(5);
+    const byTitle = await seedWork();
+    const result = await getAging();
+    expect(result).toEqual({
+      generatedAt: NOW.toISOString(),
+      thresholdDays: 5,
+      items: [
+        {
+          cardId: byTitle.G?.id,
+          cycleStartedAt: '2026-11-07T12:00:00.000Z',
+          ageDays: 10,
+          isAging: true,
+        },
+        {
+          cardId: byTitle.H?.id,
+          cycleStartedAt: '2026-11-15T12:00:00.000Z',
+          ageDays: 2,
+          isAging: false,
+        },
+      ],
+    });
+    // Only the fields the board needs.
+    const raw = z
+      .object({ items: z.array(z.record(z.string(), z.unknown())) })
+      .parse((await as('VIEWER').get(agingPath())).body);
+    expect(Object.keys(raw.items[0] ?? {})).toEqual([
+      'cardId',
+      'cycleStartedAt',
+      'ageDays',
+      'isAging',
+    ]);
+  });
+
+  it('matches the aging part of the analytics', async () => {
+    await seedKnownFlow();
+    const analytics = await getAnalytics('?timeZone=Europe/Warsaw');
+    const aging = await getAging();
+    expect(aging.thresholdDays).toBe(analytics.aging.thresholdDays);
+    expect(aging.items).toEqual(
+      analytics.aging.items.map(({ cardId, cycleStartedAt, ageDays, isAging }) => ({
+        cardId,
+        cycleStartedAt,
+        ageDays,
+        isAging,
+      })),
+    );
+  });
+
+  it('flags no card with fewer than 5 completed cards', async () => {
+    await seedCompleted(4);
+    await seedWork();
+    const result = await getAging();
+    expect(result.thresholdDays).toBeNull();
+    expect(result.items.map((item) => item.isAging)).toEqual([false, false]);
+  });
+
+  it('drops a card once it has left the IN_PROGRESS columns', async () => {
+    await seedCompleted(5);
+    const byTitle = await seedWork();
+    const g = byTitle.G;
+    if (!g) throw new Error('Expected card G');
+    const moved = await as('MEMBER').patch(`/boards/${fx.boardId}/cards/${g.id}/move`).send({
+      columnId: done(),
+    });
+    expectStatus(moved, 200);
+    const result = await getAging();
+    expect(result.items.map((item) => item.cardId)).toEqual([byTitle.H?.id]);
+  });
+
+  it('ages cards by the clock of the request and ignores query parameters', async () => {
+    await seedCompleted(5);
+    await seedWork();
+    const later = await getAging('VIEWER', appAt(new Date('2026-11-20T12:00:00Z')));
+    expect(later.generatedAt).toBe('2026-11-20T12:00:00.000Z');
+    expect(later.items.map((item) => item.ageDays)).toEqual([13, 5]);
+    const response = await as('VIEWER').get(`${agingPath()}?timeZone=Mars/Olympus&from=x`);
+    expectStatus(response, 200);
+    expect(agingResponseSchema.parse(response.body).items).toHaveLength(2);
   });
 });
 

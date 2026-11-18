@@ -13,7 +13,8 @@ import {
   type TooltipContentProps,
 } from 'recharts';
 
-import { flowCardPath, type CardLocationState } from '@/features/boards/paths';
+import type { CardLocationState } from '@/features/boards/paths';
+import { useCardLink } from '@/features/boards/useCardLink';
 
 import { ChartCard, DataTable } from './ChartCard';
 import { ReferenceLegend, TooltipBox } from './chartParts';
@@ -63,6 +64,7 @@ interface CycleTimeChartProps {
  */
 export function CycleTimeChart({ boardId, analytics, colors }: CycleTimeChartProps) {
   const navigate = useNavigate();
+  const cardLink = useCardLink();
   const maxTicks = useMaxTicks();
   const { range, leadCycle } = analytics;
   const timeZone = range.timeZone;
@@ -94,7 +96,7 @@ export function CycleTimeChart({ boardId, analytics, colors }: CycleTimeChartPro
   const ticks = dateTicks(range.from, range.to, maxTicks);
 
   const openCard = (cardKey: string) => {
-    void navigate(flowCardPath(boardId, cardKey), { state: CARD_STATE });
+    void navigate(cardLink(boardId, cardKey), { state: CARD_STATE });
   };
 
   const renderPoint = ({ cx, cy, index, isActive }: ScatterShapeProps) => {
@@ -241,6 +243,7 @@ function CycleTimeTable({
   points: readonly LeadCycleScatterPoint[];
   timeZone: string;
 }) {
+  const cardLink = useCardLink();
   return (
     <DataTable caption="Completed cards with their cycle and lead time">
       <thead>
@@ -257,7 +260,7 @@ function CycleTimeTable({
           <tr key={point.cardId}>
             <td className="font-mono whitespace-nowrap">
               <Link
-                to={flowCardPath(boardId, point.cardKey)}
+                to={cardLink(boardId, point.cardKey)}
                 state={CARD_STATE}
                 className="rounded-sm text-primary-text underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
               >

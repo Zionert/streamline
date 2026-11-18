@@ -5,7 +5,8 @@ import { Link } from 'react-router';
 
 import { Avatar } from '@/components/ui/avatar';
 import { CATEGORY_LABELS, ROLE_LABELS } from '@/features/boards/labels';
-import { cardPath, type CardLocationState } from '@/features/boards/paths';
+import type { CardLocationState } from '@/features/boards/paths';
+import { useCardLink } from '@/features/boards/useCardLink';
 import { formatDateTime, formatRelativeTime } from '@/features/cards/format';
 import { LabelPill } from '@/features/labels/LabelPill';
 
@@ -61,6 +62,8 @@ export function ActivityItem({
   now,
 }: ActivityItemProps) {
   const actor = <Strong>{personName(activity.actor)}</Strong>;
+  // Opened over the page the feed is shown on (the board or Flow).
+  const cardLink = useCardLink();
 
   const cardRef = (card: ActivityCard) => {
     const text = (
@@ -74,7 +77,7 @@ export function ActivityItem({
     const state: CardLocationState = { fromBoard: true };
     return (
       <Link
-        to={cardPath(activity.boardId, currentCardKey)}
+        to={cardLink(activity.boardId, currentCardKey)}
         state={state}
         className="break-words text-primary-text underline-offset-4 hover:underline"
         onClick={onNavigate}
