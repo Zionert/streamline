@@ -1,5 +1,5 @@
 import type { AnalyticsResponse, Board } from '@streamline/shared';
-import { ChartNoAxesColumn, Download } from 'lucide-react';
+import { ChartNoAxesColumn } from 'lucide-react';
 import { useState } from 'react';
 import { Link, Outlet, useParams } from 'react-router';
 
@@ -15,8 +15,7 @@ import { useBoardStore } from '@/stores/board';
 import { CumulativeFlowChart } from './CumulativeFlowChart';
 import { CycleTimeChart } from './CycleTimeChart';
 import { DateRangePicker } from './DateRangePicker';
-import { downloadTextFile } from './download';
-import { CSV_MIME_TYPE, flowCsv, flowCsvFileName } from './flowCsv';
+import { ExportMenu } from './ExportMenu';
 import { browserTimeZone, formatDateRange } from './flowFormat';
 import { completedCount } from './flowMetrics';
 import { rangeCaption } from './flowRange';
@@ -86,13 +85,8 @@ interface FlowHeaderProps {
 
 function FlowHeader({ board, timeZone, range, analytics }: FlowHeaderProps) {
   const data = analytics.status === 'ready' ? analytics.data : null;
-  const canExport = data !== null && completedCount(data.throughput) > 0;
-
-  const exportCsv = () => {
-    if (data) {
-      downloadTextFile(flowCsvFileName(board.key, data.range), flowCsv(data), CSV_MIME_TYPE);
-    }
-  };
+  // Nothing to export while loading, after an error, or without completed cards.
+  const exportable = data !== null && completedCount(data.throughput) > 0 ? data : null;
 
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-6">
@@ -118,10 +112,7 @@ function FlowHeader({ board, timeZone, range, analytics }: FlowHeaderProps) {
           <span className="sr-only">Time zone: </span>
           {timeZone}
         </span>
-        <Button type="button" variant="subtle" size="sm" disabled={!canExport} onClick={exportCsv}>
-          <Download strokeWidth={2} />
-          Export CSV
-        </Button>
+        <ExportMenu boardKey={board.key} data={exportable} />
       </div>
     </div>
   );

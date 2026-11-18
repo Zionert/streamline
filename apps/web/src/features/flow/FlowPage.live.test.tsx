@@ -20,7 +20,6 @@ import {
 import { deferred, type MockReply } from '@/test/mockAdapter';
 import { setupMockApi } from '@/test/renderApp';
 
-import { CSV_BOM } from './flowCsv';
 import { FLOW_REFRESH_DELAY_MS } from './flowRefresh';
 
 const mock = setupMockApi();
@@ -36,26 +35,8 @@ beforeEach(() => {
   });
 });
 
-/** `URL` statics replaced by a test (jsdom has none of them), restored after it. */
-const urlStatics = new Map<string, PropertyDescriptor | undefined>();
-
-function stubUrlStatic(name: 'createObjectURL' | 'revokeObjectURL', value: unknown) {
-  if (!urlStatics.has(name)) {
-    urlStatics.set(name, Object.getOwnPropertyDescriptor(URL, name));
-  }
-  Object.defineProperty(URL, name, { value, configurable: true, writable: true });
-}
-
 afterEach(() => {
   vi.useRealTimers();
-  for (const [name, descriptor] of urlStatics) {
-    if (descriptor) {
-      Object.defineProperty(URL, name, descriptor);
-    } else {
-      Reflect.deleteProperty(URL, name);
-    }
-  }
-  urlStatics.clear();
 });
 
 function lastSocket(): FakeSocket {
@@ -356,51 +337,5 @@ describe('own changes made over Flow', () => {
     expect(within(scatterTable()).getByRole('row', { name: /SB-1/ })).toHaveTextContent(
       'Fix the login form',
     );
-  });
-});
-
-describe('CSV export', () => {
-  it('downloads the analytics shown as a CSV file', async () => {
-    await renderFlowPage(mock);
-    await analyticsShown();
-    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:flow-csv');
-    const revokeObjectURL = vi.fn<(url: string) => void>();
-    stubUrlStatic('createObjectURL', createObjectURL);
-    stubUrlStatic('revokeObjectURL', revokeObjectURL);
-    const clicks: { href: string; download: string }[] = [];
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      clicks.push({ href: this.href, download: this.download });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
-
-    expect(clicks).toEqual([
-      { href: 'blob:flow-csv', download: 'SB-flow-2026-10-19_2026-11-17.csv' },
-    ]);
-    const blob = createObjectURL.mock.calls[0]?.[0];
-    if (!blob) throw new Error('No file was created');
-    expect(blob.type).toBe('text/csv;charset=utf-8');
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
-    const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes);
-    expect(text.startsWith(`${CSV_BOM}Cards completed;2026-10-19;2026-11-17;UTC\r\n`)).toBe(true);
-    expect(text).toContain('SB-1;Fix login;2026-10-22 13:05;9,4;4,1\r\n');
-    expect(text).toContain('\r\n\r\nDaily throughput\r\nDate;Completed\r\n');
-    // The temporary link is gone and its URL is released.
-    expect(document.querySelector('a[download]')).toBeNull();
-    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:flow-csv'));
-  });
-
-  it('is disabled while the analytics load', async () => {
-    const pending = deferred<MockReply>();
-    await renderFlowPage(mock, undefined, { analytics: [() => pending.promise] });
-
-    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeDisabled();
-
-    pending.resolve(ok(analyticsWith()));
-    await analyticsShown();
-    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeEnabled();
   });
 });

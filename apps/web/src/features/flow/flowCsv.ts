@@ -1,102 +1,58 @@
 import type { AnalyticsResponse } from '@streamline/shared';
 
+import { localDateTime, roundDays } from './flowExport';
+
 /*
- * CSV export of the flow analytics shown on the page.
- *
- * Format: UTF-8 with a byte order mark, CRLF line endings, `;` as the delimiter and a decimal
- * comma. Excel with Polish (and most other European) regional settings splits a `;`-separated
- * file into columns when it is opened by double-click and reads `4,5` as a number; the BOM makes
- * it read the file as UTF-8, so Polish letters survive.
+ * CSV export of the cards completed in the range: a portable, standards-based file (RFC 4180)
+ * for other tools and imports. Comma delimiter, dot decimals, every text field quoted, UTF-8 with
+ * a byte order mark (so spreadsheets detect the encoding) and CRLF line endings. A CSV holds one
+ * table, so it has the cards only. Spreadsheet users should use the Excel (.xlsx) export: its
+ * cells are typed, so it does not depend on the list separator of the regional settings.
  */
 
-export const CSV_BOM = '\uFEFF';
-export const CSV_DELIMITER = ';';
+/** The byte order mark, built from its code so that no editor or tool can strip it. */
+export const CSV_BOM = String.fromCharCode(0xfeff);
 export const CSV_LINE_END = '\r\n';
-export const CSV_MIME_TYPE = 'text/csv;charset=utf-8';
 
-/** Decimals kept for fractional numbers (days). */
-const DECIMALS = 2;
+export const CSV_HEADER_FIELDS = [
+  'Card',
+  'Title',
+  'Completed',
+  'Lead time (days)',
+  'Cycle time (days)',
+] as const;
 
 /** Spreadsheets treat a cell starting with one of these as a formula (or its continuation). */
 const FORMULA_START = /^[=+\-@\t\r]/;
-/** Cells that need quotes: the delimiter, a quote, a line break, or spaces at either end. */
-const NEEDS_QUOTES = /[;"\r\n]|^\s|\s$/;
 
 /**
- * A text cell: a leading formula character is neutralised with an apostrophe (titles are user
- * input), then the cell is quoted when needed, with its quotes doubled (RFC 4180).
+ * A text field: a leading formula character is neutralised with an apostrophe (titles are user
+ * input), then the field is quoted, with its quotes doubled.
  */
 export function textCell(value: string): string {
   const safe = FORMULA_START.test(value) ? `'${value}` : value;
-  return NEEDS_QUOTES.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+  return `"${safe.replaceAll('"', '""')}"`;
 }
 
-/** A number with a decimal comma, e.g. `4,5`; at most two decimals, none for whole numbers. */
+/** A number with a dot as the decimal separator, at most two decimals; empty when unknown. */
 export function numberCell(value: number | null): string {
-  if (value === null) {
-    return '';
-  }
-  const factor = 10 ** DECIMALS;
-  const rounded = Math.round(value * factor) / factor;
-  return String(rounded).replace('.', ',');
+  return value === null ? '' : String(roundDays(value));
 }
 
-const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
-
-/** An instant as its local `YYYY-MM-DD HH:mm` in `timeZone`. */
-export function localDateTime(instant: string, timeZone: string): string {
-  let formatter = dateTimeFormatters.get(timeZone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    });
-    dateTimeFormatters.set(timeZone, formatter);
-  }
-  const parts = formatter.formatToParts(new Date(instant));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((entry) => entry.type === type)?.value ?? '';
-  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
-}
-
-function line(cells: readonly string[]): string {
-  return cells.join(CSV_DELIMITER);
-}
-
-/**
- * The analytics as one CSV file with two sections separated by an empty line:
- * 1. `Cards completed;<from>;<to>;<timeZone>`, then one row per completed card (empty cycle time
- *    when the card was never in progress);
- * 2. `Daily throughput`, then one row per day of the range.
- */
+/** The cards completed in the range, one row each (empty cycle time when never in progress). */
 export function flowCsv(data: AnalyticsResponse): string {
-  const { from, to, timeZone } = data.range;
+  const { timeZone } = data.range;
   const lines = [
-    line([textCell('Cards completed'), textCell(from), textCell(to), textCell(timeZone)]),
-    line(['Card', 'Title', 'Completed', 'Lead time (days)', 'Cycle time (days)']),
+    CSV_HEADER_FIELDS.map(textCell).join(','),
     ...data.leadCycle.points.map((point) =>
-      line([
+      [
         textCell(point.cardKey),
         textCell(point.title),
-        textCell(localDateTime(point.completedAt, timeZone)),
+        localDateTime(point.completedAt, timeZone),
         numberCell(point.leadTimeDays),
         numberCell(point.cycleTimeDays),
-      ]),
+      ].join(','),
     ),
-    '',
-    'Daily throughput',
-    line(['Date', 'Completed']),
-    ...data.throughput.daily.map((day) => line([textCell(day.date), numberCell(day.count)])),
   ];
   return `${CSV_BOM}${lines.join(CSV_LINE_END)}${CSV_LINE_END}`;
-}
-
-/** E.g. `SB-flow-2026-10-19_2026-11-17.csv`. */
-export function flowCsvFileName(boardKey: string, range: { from: string; to: string }): string {
-  return `${boardKey}-flow-${range.from}_${range.to}.csv`;
 }

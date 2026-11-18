@@ -233,7 +233,7 @@ describe('Flow page route', () => {
       ),
     ).toBeInTheDocument();
     // Nothing to export.
-    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
     expect(screen.getByRole('link', { name: 'Go to board' })).toHaveAttribute('href', BOARD);
     // The key figures still render; the charts and the forecast do not.
     expect(screen.getAllByTestId('kpi-tile')).toHaveLength(4);
