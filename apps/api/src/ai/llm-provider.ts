@@ -26,12 +26,28 @@ export interface LlmToolDefinition {
   parameters: JsonSchema;
 }
 
+/**
+ * Values of the OpenAI-compatible `reasoning_effort` field ("thinking" of reasoning models);
+ * `default` means the field is not sent, leaving the model's own default.
+ */
+export const LLM_REASONING_EFFORTS = [
+  'default',
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+] as const;
+export type LlmReasoningEffort = (typeof LLM_REASONING_EFFORTS)[number];
+
 export interface LlmRequest {
   messages: LlmMessage[];
   tools?: LlmToolDefinition[];
   /** Aborts the call; the stream then fails with `LLM_ABORTED`. */
   signal?: AbortSignal;
   temperature?: number;
+  /** Overrides the configured reasoning effort for this call (`default` omits the field). */
+  reasoningEffort?: LlmReasoningEffort;
 }
 
 export type LlmFinishReason = 'stop' | 'tool_calls' | 'length' | 'other';

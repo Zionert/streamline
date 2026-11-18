@@ -50,13 +50,20 @@ describe('MockLlmProvider', () => {
         messages,
         tools,
         temperature: 0,
+        reasoningEffort: 'medium',
         signal: new AbortController().signal,
       }),
     );
     messages.push({ role: 'user', content: 'changed later' });
 
     expect(provider.requests).toEqual([
-      { messages: [{ role: 'user', content: 'Hi' }], tools, temperature: 0, hasSignal: true },
+      {
+        messages: [{ role: 'user', content: 'Hi' }],
+        tools,
+        temperature: 0,
+        reasoningEffort: 'medium',
+        hasSignal: true,
+      },
     ]);
   });
 

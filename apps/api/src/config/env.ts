@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { LLM_REASONING_EFFORTS } from '../ai/llm-provider.js';
+
 /** bcrypt work factor required in production. */
 export const PRODUCTION_MIN_BCRYPT_COST = 12;
 
@@ -22,6 +24,15 @@ const aiEnvShape = {
   LLM_MODEL: optionalString,
   /** Sent as a Bearer token when set; a local Ollama needs none. Never logged. */
   LLM_API_KEY: optionalString,
+  /**
+   * Default `reasoning_effort` sent to the model. `none` disables the "thinking" of reasoning
+   * models, so that answers start quickly; `default` or an empty value omits the field (for
+   * models that reject it).
+   */
+  LLM_REASONING_EFFORT: z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim().toLowerCase() || 'default' : value),
+    z.enum(LLM_REASONING_EFFORTS).default('none'),
+  ),
   /**
    * Upper bound of one model call: the whole streamed response, including the time the caller
    * spends handling the streamed events.

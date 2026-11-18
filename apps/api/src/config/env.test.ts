@@ -34,6 +34,7 @@ describe('loadConfig', () => {
       LLM_CONTEXT_TOKENS: 16000,
       AI_DAILY_REQUEST_LIMIT: 200,
       AI_DAILY_TOKEN_LIMIT: 500000,
+      LLM_REASONING_EFFORT: 'none',
     });
   });
 
@@ -176,6 +177,19 @@ describe('loadConfig', () => {
     it('loads only the AI part with loadAiConfig (no database variables needed)', () => {
       expect(loadAiConfig(ollama)).toMatchObject({ AI_ENABLED: true, LLM_MODEL: 'qwen3.5:9b' });
       expect(loadAiConfig({}).AI_ENABLED).toBe(false);
+    });
+
+    it('validates LLM_REASONING_EFFORT; "default" or an empty value means "do not send"', () => {
+      const effort = (value: string) =>
+        loadConfig({ ...required, LLM_REASONING_EFFORT: value }).LLM_REASONING_EFFORT;
+
+      expect(loadConfig(required).LLM_REASONING_EFFORT).toBe('none');
+      for (const value of ['none', 'minimal', 'low', 'medium', 'high', 'default'] as const) {
+        expect(effort(value)).toBe(value);
+      }
+      expect(effort(' Medium ')).toBe('medium');
+      expect(effort('')).toBe('default');
+      expect(() => effort('turbo')).toThrow(/LLM_REASONING_EFFORT/);
     });
 
     it('accepts boolean-like values for AI_ENABLED', () => {

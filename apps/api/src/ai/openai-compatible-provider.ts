@@ -3,6 +3,7 @@ import type {
   LlmEvent,
   LlmMessage,
   LlmProvider,
+  LlmReasoningEffort,
   LlmRequest,
   LlmToolDefinition,
 } from './llm-provider.js';
@@ -24,6 +25,11 @@ export interface OpenAICompatibleProviderOptions {
   timeoutMs: number;
   /** Max wait for the response headers and then between two received chunks. */
   idleTimeoutMs: number;
+  /**
+   * `reasoning_effort` of every call unless the request overrides it; `default` (or unset)
+   * omits the field.
+   */
+  reasoningEffort?: LlmReasoningEffort | undefined;
   /** Replaces the global `fetch` (tests). */
   fetch?: typeof fetch;
   /** Receives signals about the raw stream (e.g. reasoning tokens) for measurements. */
@@ -137,6 +143,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
 
   private buildBody(request: LlmRequest): string {
     const tools = request.tools ?? [];
+    const reasoningEffort = request.reasoningEffort ?? this.options.reasoningEffort ?? 'default';
     return JSON.stringify({
       model: this.model,
       messages: request.messages.map(toWireMessage),
@@ -144,6 +151,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
       // Ignored by servers that do not report usage in streams.
       stream_options: { include_usage: true },
       ...(request.temperature !== undefined && { temperature: request.temperature }),
+      ...(reasoningEffort !== 'default' && { reasoning_effort: reasoningEffort }),
       ...(tools.length > 0 && { tools: tools.map(toWireTool), tool_choice: 'auto' }),
     });
   }

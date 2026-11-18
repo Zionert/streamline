@@ -144,6 +144,25 @@ describe('runWithValidation', () => {
     expect(provider.pendingScenarios).toBe(0);
   });
 
+  it('keeps the reasoning effort and temperature of the request on the retry', async () => {
+    const provider = new MockLlmProvider([
+      MockLlmProvider.toolCall('create_card', { title: '' }),
+      MockLlmProvider.toolCall('create_card', { title: 'x', estimateDays: 1 }),
+    ]);
+
+    await runWithValidation({
+      provider,
+      request: { ...request, reasoningEffort: 'medium', temperature: 0.1 },
+      schema: cardSchema,
+      extract: toolCallArguments('create_card'),
+    });
+
+    expect(provider.requests.map((r) => [r.reasoningEffort, r.temperature])).toEqual([
+      ['medium', 0.1],
+      ['medium', 0.1],
+    ]);
+  });
+
   it('repeats only JSON object arguments in the assistant message of the retry', async () => {
     const provider = new MockLlmProvider([
       {

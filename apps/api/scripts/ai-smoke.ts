@@ -3,12 +3,15 @@
  * repository root). Not part of CI; it calls the configured provider over the network.
  *
  * Configuration: AI_ENABLED=true, LLM_BASE_URL, LLM_MODEL and optionally LLM_API_KEY,
- * LLM_TIMEOUT_MS, LLM_IDLE_TIMEOUT_MS from apps/api/.env or the environment (the environment wins).
+ * LLM_TIMEOUT_MS, LLM_IDLE_TIMEOUT_MS, LLM_REASONING_EFFORT from apps/api/.env or the environment
+ * (the environment wins).
  *
  * Options:
  *   --runs N       number of measured plain prompts (default 10; Polish, Ukrainian and English)
  *   --no-warmup    measure the first call too (by default one unmeasured call loads the model)
  *   --json         also write the results to ai-smoke-<timestamp>.json in the current directory
+ *   --reasoning V  reasoning_effort for this run (none|minimal|low|medium|high|default),
+ *                  overriding LLM_REASONING_EFFORT
  *
  * Besides the plain prompts, one tool-calling prompt checks that the model returns a tool call
  * whose arguments pass a Zod schema (with the same single correction attempt as the assistant).
@@ -89,6 +92,7 @@ function parseOptions() {
   const { values } = parseArgs({
     options: {
       runs: { type: 'string', default: '10' },
+      reasoning: { type: 'string' },
       warmup: { type: 'boolean', default: true },
       json: { type: 'boolean', default: false },
     },
@@ -98,7 +102,7 @@ function parseOptions() {
   if (!Number.isInteger(runs) || runs < 1 || runs > 1000) {
     throw new Error('--runs must be an integer between 1 and 1000');
   }
-  return { runs, warmup: values.warmup, json: values.json };
+  return { runs, warmup: values.warmup, json: values.json, reasoning: values.reasoning };
 }
 
 function describeError(err: unknown): string {
@@ -131,7 +135,13 @@ function isFatal(err: unknown): boolean {
 
 async function main(): Promise<void> {
   const options = parseOptions();
-  const config = loadAiConfig();
+  // The flag goes through the same validation as the environment variable.
+  const config = loadAiConfig(
+    options.reasoning === undefined
+      ? process.env
+      : { ...process.env, LLM_REASONING_EFFORT: options.reasoning },
+  );
+  const reasoningEffort = config.LLM_REASONING_EFFORT;
   if (!config.AI_ENABLED) {
     throw new Error(
       'The AI assistant is disabled. Set AI_ENABLED=true, LLM_BASE_URL and LLM_MODEL ' +
@@ -147,7 +157,9 @@ async function main(): Promise<void> {
   if (!provider) throw new Error('The AI provider could not be created');
   const host = new URL(config.LLM_BASE_URL ?? '').host;
 
-  console.info(`Model: ${provider.model} at ${host}; ${String(options.runs)} measured runs.`);
+  console.info(
+    `Model: ${provider.model} at ${host}; reasoning_effort: ${reasoningEffort}; ${String(options.runs)} measured runs.`,
+  );
 
   const ask = async (llm: LlmProvider, text: string): Promise<RunMetrics> => {
     recorder = new RunRecorder(() => performance.now());
@@ -275,6 +287,9 @@ async function main(): Promise<void> {
   );
   console.info('');
   console.info(`Model:            ${provider.model}`);
+  console.info(
+    `reasoning_effort: ${reasoningEffort}${reasoningEffort === 'default' ? ' (not sent)' : ''}`,
+  );
   console.info(`Base URL host:    ${host}`);
   console.info(`Runs:             ${String(runs.length)} (${String(failed)} failed)`);
   console.info(
@@ -309,6 +324,7 @@ async function main(): Promise<void> {
           finishedAt,
           model: provider.model,
           baseUrlHost: host,
+          reasoningEffort,
           ttftTargetMs: TTFT_TARGET_MS,
           percentileMethod: 'nearest-rank',
           summary: {

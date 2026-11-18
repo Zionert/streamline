@@ -13,6 +13,7 @@ export type LlmProviderConfig = Pick<
   | 'LLM_API_KEY'
   | 'LLM_TIMEOUT_MS'
   | 'LLM_IDLE_TIMEOUT_MS'
+  | 'LLM_REASONING_EFFORT'
 >;
 
 export type CreateLlmProviderOptions = Pick<
@@ -39,6 +40,7 @@ export function createLlmProvider(
     apiKey: config.LLM_API_KEY,
     timeoutMs: config.LLM_TIMEOUT_MS,
     idleTimeoutMs: config.LLM_IDLE_TIMEOUT_MS,
+    reasoningEffort: config.LLM_REASONING_EFFORT,
     ...options,
   });
 }

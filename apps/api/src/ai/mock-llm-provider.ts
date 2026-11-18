@@ -3,6 +3,7 @@ import type {
   LlmEvent,
   LlmMessage,
   LlmProvider,
+  LlmReasoningEffort,
   LlmRequest,
   LlmToolDefinition,
 } from './llm-provider.js';
@@ -22,6 +23,7 @@ export interface MockLlmRecordedRequest {
   messages: LlmMessage[];
   tools: LlmToolDefinition[] | undefined;
   temperature: number | undefined;
+  reasoningEffort: LlmReasoningEffort | undefined;
   hasSignal: boolean;
 }
 
@@ -99,6 +101,7 @@ export class MockLlmProvider implements LlmProvider {
       messages: structuredClone(request.messages),
       tools: request.tools && structuredClone(request.tools),
       temperature: request.temperature,
+      reasoningEffort: request.reasoningEffort,
       hasSignal: request.signal !== undefined,
     });
     const scenario = this.scenarios.shift();

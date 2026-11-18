@@ -260,7 +260,7 @@ describe('OpenAICompatibleProvider: request', () => {
   it('sends a streamed request with the messages, tools and options in the OpenAI format', async () => {
     const stub = createFetchStub(okResponse);
     await collect(
-      createProvider(stub.fetch).streamChat({
+      createProvider(stub.fetch, { reasoningEffort: 'none' }).streamChat({
         messages: [
           { role: 'system', content: 'You are helpful.' },
           { role: 'user', content: 'Summarize WEB' },
@@ -289,6 +289,7 @@ describe('OpenAICompatibleProvider: request', () => {
       stream: true,
       stream_options: { include_usage: true },
       temperature: 0.2,
+      reasoning_effort: 'none',
       messages: [
         { role: 'system', content: 'You are helpful.' },
         { role: 'user', content: 'Summarize WEB' },
@@ -319,13 +320,34 @@ describe('OpenAICompatibleProvider: request', () => {
     });
   });
 
-  it('omits tools, tool_choice and temperature when not given', async () => {
+  it('omits tools, tool_choice, temperature and reasoning_effort when not given', async () => {
     const stub = createFetchStub(okResponse);
     await collect(createProvider(stub.fetch).streamChat(REQUEST));
 
     expect(stub.calls[0]?.body).not.toHaveProperty('tools');
     expect(stub.calls[0]?.body).not.toHaveProperty('tool_choice');
     expect(stub.calls[0]?.body).not.toHaveProperty('temperature');
+    expect(stub.calls[0]?.body).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('lets the request override the configured reasoning effort', async () => {
+    const stub = createFetchStub(okResponse);
+    const provider = createProvider(stub.fetch, { reasoningEffort: 'none' });
+
+    await collect(provider.streamChat({ ...REQUEST, reasoningEffort: 'medium' }));
+    await collect(provider.streamChat({ ...REQUEST, reasoningEffort: 'default' }));
+    await collect(provider.streamChat(REQUEST));
+
+    expect(stub.calls[0]?.body).toMatchObject({ reasoning_effort: 'medium' });
+    expect(stub.calls[1]?.body).not.toHaveProperty('reasoning_effort');
+    expect(stub.calls[2]?.body).toMatchObject({ reasoning_effort: 'none' });
+  });
+
+  it('sends no reasoning_effort when configured as "default"', async () => {
+    const stub = createFetchStub(okResponse);
+    await collect(createProvider(stub.fetch, { reasoningEffort: 'default' }).streamChat(REQUEST));
+
+    expect(stub.calls[0]?.body).not.toHaveProperty('reasoning_effort');
   });
 
   it('aborts the request when the consumer stops reading early', async () => {
