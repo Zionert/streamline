@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import type { Logger } from 'pino';
 import { pinoHttp } from 'pino-http';
 
+import type { LlmProvider } from './ai/llm-provider.js';
 import type { AppConfig } from './config/env.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { notFoundHandler } from './middleware/not-found.js';
@@ -40,6 +41,11 @@ export interface AppDependencies {
   config: AppConfig;
   logger: Logger;
   db: DbClient;
+  /**
+   * Model provider of the AI assistant (for the assistant's routes); `null` or absent while the
+   * assistant is disabled. Tests inject a `MockLlmProvider`.
+   */
+  llm?: LlmProvider | null;
 }
 
 export interface CreateAppOptions extends AppDependencies {

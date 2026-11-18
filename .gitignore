@@ -17,3 +17,6 @@ test-results/
 
 # Generated Prisma client
 apps/api/src/generated/
+
+# Results of `pnpm ai:smoke --json`
+ai-smoke-*.json

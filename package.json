@@ -20,6 +20,7 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:seed:demo": "pnpm --filter @streamline/api seed:demo",
+    "ai:smoke": "pnpm --filter @streamline/api ai:smoke",
     "prepare": "husky"
   },
   "lint-staged": {

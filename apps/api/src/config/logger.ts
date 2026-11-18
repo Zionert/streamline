@@ -11,6 +11,11 @@ export const LOG_REDACT_PATHS = [
   '*.passwordHash',
   '*.accessToken',
   '*.refreshToken',
+  // The model provider's API key, should the configuration or a provider ever be logged.
+  'LLM_API_KEY',
+  '*.LLM_API_KEY',
+  '*.apiKey',
+  '*.options.apiKey',
 ];
 
 /**

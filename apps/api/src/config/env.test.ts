@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { loadConfig } from './env.js';
+import { loadAiConfig, loadConfig } from './env.js';
 
 const DATABASE_URL = 'postgresql://user:pass@localhost:5432/db';
 const JWT_ACCESS_SECRET = 'a'.repeat(32);
@@ -25,6 +25,16 @@ describe('loadConfig', () => {
       AUTH_RATE_LIMIT_WINDOW_MS: 900000,
       AUTH_RATE_LIMIT_MAX: 100,
       AUTH_CREDENTIALS_RATE_LIMIT_MAX: 10,
+      AI_ENABLED: false,
+      LLM_BASE_URL: undefined,
+      LLM_MODEL: undefined,
+      LLM_API_KEY: undefined,
+      LLM_TIMEOUT_MS: 60000,
+      LLM_IDLE_TIMEOUT_MS: 30000,
+      LLM_CONTEXT_TOKENS: 16000,
+      AI_DAILY_REQUEST_LIMIT: 200,
+      AI_DAILY_TOKEN_LIMIT: 500000,
+      LLM_REASONING_EFFORT: 'none',
     });
   });
 
@@ -98,5 +108,100 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...required, REFRESH_COOKIE_PATH: 'auth' })).toThrow(
       /REFRESH_COOKIE_PATH/,
     );
+  });
+
+  describe('AI assistant configuration', () => {
+    const ollama = {
+      AI_ENABLED: 'true',
+      LLM_BASE_URL: 'http://localhost:11434/v1',
+      LLM_MODEL: 'qwen3.5:9b',
+    };
+
+    it('requires nothing LLM-related while the assistant is disabled', () => {
+      const config = loadConfig({ ...required, AI_ENABLED: 'false', LLM_BASE_URL: 'not a url' });
+
+      expect(config.AI_ENABLED).toBe(false);
+      expect(config.LLM_MODEL).toBeUndefined();
+    });
+
+    it('accepts an enabled assistant without an API key (local Ollama)', () => {
+      const config = loadConfig({ ...required, ...ollama, LLM_API_KEY: '' });
+
+      expect(config).toMatchObject({
+        AI_ENABLED: true,
+        LLM_BASE_URL: 'http://localhost:11434/v1',
+        LLM_MODEL: 'qwen3.5:9b',
+      });
+      expect(config.LLM_API_KEY).toBeUndefined();
+    });
+
+    it('keeps the API key and coerces the numeric limits', () => {
+      const config = loadConfig({
+        ...required,
+        ...ollama,
+        LLM_API_KEY: 'sk-test',
+        LLM_TIMEOUT_MS: '1000',
+        LLM_IDLE_TIMEOUT_MS: '500',
+        LLM_CONTEXT_TOKENS: '8000',
+        AI_DAILY_REQUEST_LIMIT: '5',
+        AI_DAILY_TOKEN_LIMIT: '1000',
+      });
+
+      expect(config).toMatchObject({
+        LLM_API_KEY: 'sk-test',
+        LLM_TIMEOUT_MS: 1000,
+        LLM_IDLE_TIMEOUT_MS: 500,
+        LLM_CONTEXT_TOKENS: 8000,
+        AI_DAILY_REQUEST_LIMIT: 5,
+        AI_DAILY_TOKEN_LIMIT: 1000,
+      });
+    });
+
+    it('requires LLM_BASE_URL and LLM_MODEL when the assistant is enabled', () => {
+      expect(() => loadConfig({ ...required, AI_ENABLED: 'true' })).toThrow(
+        /LLM_BASE_URL is required when AI_ENABLED=true[\s\S]*LLM_MODEL is required/,
+      );
+      expect(() => loadConfig({ ...required, ...ollama, LLM_MODEL: ' ' })).toThrow(/LLM_MODEL/);
+    });
+
+    it('rejects an LLM_BASE_URL that is not an http(s) URL when enabled', () => {
+      expect(() => loadConfig({ ...required, ...ollama, LLM_BASE_URL: 'localhost:11434' })).toThrow(
+        /LLM_BASE_URL must be an http\(s\) URL/,
+      );
+    });
+
+    it('rejects an AI_ENABLED value that is not a boolean', () => {
+      expect(() => loadConfig({ ...required, AI_ENABLED: 'maybe' })).toThrow(/AI_ENABLED/);
+    });
+
+    it('loads only the AI part with loadAiConfig (no database variables needed)', () => {
+      expect(loadAiConfig(ollama)).toMatchObject({ AI_ENABLED: true, LLM_MODEL: 'qwen3.5:9b' });
+      expect(loadAiConfig({}).AI_ENABLED).toBe(false);
+    });
+
+    it('validates LLM_REASONING_EFFORT; "default" or an empty value means "do not send"', () => {
+      const effort = (value: string) =>
+        loadConfig({ ...required, LLM_REASONING_EFFORT: value }).LLM_REASONING_EFFORT;
+
+      expect(loadConfig(required).LLM_REASONING_EFFORT).toBe('none');
+      for (const value of ['none', 'minimal', 'low', 'medium', 'high', 'default'] as const) {
+        expect(effort(value)).toBe(value);
+      }
+      expect(effort(' Medium ')).toBe('medium');
+      expect(effort('')).toBe('default');
+      expect(() => effort('turbo')).toThrow(/LLM_REASONING_EFFORT/);
+    });
+
+    it('accepts boolean-like values for AI_ENABLED', () => {
+      expect(loadAiConfig({ ...ollama, AI_ENABLED: '1' }).AI_ENABLED).toBe(true);
+      expect(loadAiConfig({ ...ollama, AI_ENABLED: 'yes' }).AI_ENABLED).toBe(true);
+      expect(loadAiConfig({ ...ollama, AI_ENABLED: '0' }).AI_ENABLED).toBe(false);
+    });
+
+    it('reports a missing LLM_BASE_URL from loadAiConfig', () => {
+      expect(() => loadAiConfig({ AI_ENABLED: '1', LLM_MODEL: 'qwen3.5:9b' })).toThrow(
+        /Invalid AI configuration[\s\S]*LLM_BASE_URL is required/,
+      );
+    });
   });
 });
