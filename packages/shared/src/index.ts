@@ -11,6 +11,7 @@ export * from './schemas/label.js';
 export * from './schemas/comment.js';
 export * from './schemas/activity.js';
 export * from './schemas/analytics.js';
+export * from './schemas/ai.js';
 export * from './board-key.js';
 export * from './permissions.js';
 export * from './events.js';

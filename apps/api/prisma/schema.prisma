@@ -14,20 +14,22 @@ datasource db {
 }
 
 model User {
-  id            String           @id @default(cuid())
+  id              String           @id @default(cuid())
   /// Stored normalized (trimmed, lowercase).
-  email         String           @unique
-  passwordHash  String
-  name          String
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  refreshTokens RefreshToken[]
-  memberships   BoardMember[]
-  ownedBoards   Board[]          @relation("BoardOwner")
-  assignedCards Card[]           @relation("CardAssignee")
-  cardMoves     CardTransition[] @relation("CardTransitionMovedBy")
-  comments      Comment[]        @relation("CommentAuthor")
-  activities    Activity[]       @relation("ActivityActor")
+  email           String           @unique
+  passwordHash    String
+  name            String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  refreshTokens   RefreshToken[]
+  memberships     BoardMember[]
+  ownedBoards     Board[]          @relation("BoardOwner")
+  assignedCards   Card[]           @relation("CardAssignee")
+  cardMoves       CardTransition[] @relation("CardTransitionMovedBy")
+  comments        Comment[]        @relation("CommentAuthor")
+  activities      Activity[]       @relation("ActivityActor")
+  aiConversations AiConversation[]
+  aiUsage         AiUsage[]
 }
 
 /// Opaque refresh tokens; only the SHA-256 hash of the token is stored.
@@ -56,24 +58,25 @@ enum BoardRole {
 }
 
 model Board {
-  id             String           @id @default(cuid())
-  name           String
+  id              String           @id @default(cuid())
+  name            String
   /// Prefix of card keys (e.g. "SL" in "SL-12"): 2-5 uppercase letters, unique per owner.
-  key            String
+  key             String
   /// The user holding the OWNER membership; kept in sync with it.
-  ownerId        String
-  owner          User             @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  ownerId         String
+  owner           User             @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   /// Number given to the next card; only ever incremented, so numbers are never reused.
-  nextCardNumber Int              @default(1)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  members        BoardMember[]
-  columns        Column[]
-  cards          Card[]
-  transitions    CardTransition[]
-  labels         Label[]
-  comments       Comment[]
-  activities     Activity[]
+  nextCardNumber  Int              @default(1)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  members         BoardMember[]
+  columns         Column[]
+  cards           Card[]
+  transitions     CardTransition[]
+  labels          Label[]
+  comments        Comment[]
+  activities      Activity[]
+  aiConversations AiConversation[]
 
   @@unique([ownerId, key])
 }
@@ -301,4 +304,78 @@ model Activity {
   /// Board feed and card feed, newest first (keyset pagination on createdAt, id).
   @@index([boardId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([cardId, createdAt(sort: Desc), id(sort: Desc)])
+}
+
+/// Purpose of an AI assistant conversation.
+enum AiConversationKind {
+  /// The assistant panel of a board: one conversation per user and board.
+  BOARD_CHAT
+  /// "New project with assistant": a conversation without a board.
+  PROJECT_SESSION
+}
+
+// A conversation with the AI assistant, private to its author. Hand-written in the migration SQL
+// (Prisma cannot express it): the check constraint "AiConversation_kind_board_check" requires a
+// board for BOARD_CHAT and none for PROJECT_SESSION. The unique (userId, boardId) allows one board
+// chat per user and board; project sessions have a null boardId, which PostgreSQL treats as
+// distinct, so a user may have several of them.
+model AiConversation {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      AiConversationKind
+  /// Set for BOARD_CHAT; the conversation is deleted together with the board.
+  boardId   String?
+  board     Board?             @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  messages  AiMessage[]
+
+  @@unique([userId, boardId])
+  /// Used by ON DELETE CASCADE when a board is deleted.
+  @@index([boardId])
+}
+
+/// Author of an AI assistant message (TOOL carries the result of a tool call).
+enum AiMessageRole {
+  USER
+  ASSISTANT
+  TOOL
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           AiMessageRole
+  /// Text of the message; empty for an assistant message that only calls a tool.
+  content        String
+  /// Name of the called tool (ASSISTANT calling a tool, or TOOL answering it).
+  toolName       String?
+  /// Id the model gave the tool call; pairs a TOOL message with the call it answers.
+  toolCallId     String?
+  /// Arguments of the tool call as sent by the model.
+  toolArgs       Json?
+  /// Result of the tool call (TOOL).
+  toolResult     Json?
+  createdAt      DateTime       @default(now())
+
+  /// Conversation history, newest first (keyset pagination on createdAt, id).
+  @@index([conversationId, createdAt(sort: Desc), id(sort: Desc)])
+}
+
+/// AI assistant usage per user and calendar day (UTC), checked against the daily limits.
+model AiUsage {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Calendar day (UTC) without time.
+  day              DateTime @db.Date
+  requestCount     Int      @default(0)
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, day])
 }

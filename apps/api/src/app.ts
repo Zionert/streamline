@@ -13,6 +13,7 @@ import { notFoundHandler } from './middleware/not-found.js';
 import { createRequireAuth } from './middleware/require-auth.js';
 import { createRequireBoardPermission } from './middleware/require-board-permission.js';
 import { noopBoardEvents, type BoardEvents } from './realtime/board-events.js';
+import { createAiConversationRepository } from './repositories/ai-conversation.repository.js';
 import { createActivityRepository } from './repositories/activity.repository.js';
 import { createAnalyticsRepository } from './repositories/analytics.repository.js';
 import { createBoardMemberRepository } from './repositories/board-member.repository.js';
@@ -26,6 +27,7 @@ import { createRefreshTokenRepository } from './repositories/refresh-token.repos
 import { createUserRepository } from './repositories/user.repository.js';
 import { createRouter } from './routes/index.js';
 import { createActivityService } from './services/activity.service.js';
+import { createAiConversationService } from './services/ai-conversation.service.js';
 import { createAnalyticsService } from './services/analytics.service.js';
 import { createAuthService } from './services/auth.service.js';
 import { createBoardAccessService } from './services/board-access.service.js';
@@ -95,6 +97,10 @@ export function createApp({
     now,
     random,
   });
+  const aiConversationService = createAiConversationService({
+    conversations: createAiConversationRepository(db),
+    boardAccess,
+  });
 
   const app = express();
 
@@ -114,6 +120,11 @@ export function createApp({
       commentService,
       activityService,
       analyticsService,
+      aiConversationService,
+      aiStatus: {
+        enabled: config.AI_ENABLED,
+        model: config.AI_ENABLED ? (config.LLM_MODEL ?? null) : null,
+      },
       requireAuth: createRequireAuth(tokens),
       requireBoardPermission: createRequireBoardPermission(boardAccess),
       config,
