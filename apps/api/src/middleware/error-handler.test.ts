@@ -1,4 +1,10 @@
-import { errorResponseSchema, RankError, type RankErrorCode } from '@streamline/shared';
+import {
+  errorResponseSchema,
+  FlowError,
+  RankError,
+  type FlowErrorCode,
+  type RankErrorCode,
+} from '@streamline/shared';
 import express from 'express';
 import { pino } from 'pino';
 import { pinoHttp } from 'pino-http';
@@ -64,6 +70,19 @@ describe('errorHandler', () => {
 
     expect(status).toBe(expectedStatus);
     expect(body.error).toEqual({ code, message: 'Bad rank' });
+  });
+
+  it.each<[FlowErrorCode, string]>([
+    ['INVALID_ARGUMENT', 'Invalid analytics parameters'],
+    ['INVALID_TIME_ZONE', 'Invalid time zone'],
+  ])('maps FlowError %s to 400 VALIDATION_ERROR with a fixed message', async (code, message) => {
+    const { status, body } = await getError(
+      new FlowError(code, 'Invalid date key: "internal-value-2026"'),
+    );
+
+    expect(status).toBe(400);
+    expect(body.error).toEqual({ code: 'VALIDATION_ERROR', message });
+    expect(JSON.stringify(body)).not.toContain('internal-value');
   });
 
   it('hides internals of unexpected errors behind a generic 500', async () => {

@@ -26,6 +26,8 @@ export interface RecordedRequest {
   /** The `X-Socket-Id` header (the socket of the client that makes a change). */
   socketId: string | undefined;
   data: unknown;
+  /** Query parameters given to axios (`params`), as passed. */
+  params: unknown;
   withCredentials: boolean | undefined;
 }
 
@@ -52,6 +54,7 @@ export function createMockAdapter() {
       authorization: typeof authorization === 'string' ? authorization : undefined,
       socketId: typeof socketId === 'string' ? socketId : undefined,
       data: typeof config.data === 'string' ? (JSON.parse(config.data) as unknown) : config.data,
+      params: config.params as unknown,
       withCredentials: config.withCredentials,
     });
 

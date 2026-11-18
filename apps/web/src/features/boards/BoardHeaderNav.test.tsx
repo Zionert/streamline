@@ -11,6 +11,7 @@ import {
   memberWith,
   sessionWith,
 } from '@/test/fixtures';
+import { analyticsWith, countForecast } from '@/test/flowFixtures';
 import { closeMenu, menuItemNames, openMenu, chooseMenuItem } from '@/test/menu';
 import { renderApp, setupMockApi } from '@/test/renderApp';
 
@@ -69,8 +70,11 @@ describe('top bar on a board page', () => {
     const board = within(views()).getByRole('link', { name: 'Board' });
     expect(board).toHaveAttribute('href', BOARD);
     expect(board).toHaveAttribute('aria-current', 'page');
-    // The other items are buttons, never marked as the current page.
-    for (const name of [/^Flow/, 'Activity', 'Team']) {
+    const flow = within(views()).getByRole('link', { name: 'Flow' });
+    expect(flow).toHaveAttribute('href', `${BOARD}/flow`);
+    expect(flow).not.toHaveAttribute('aria-current');
+    // Activity and Team open panels: buttons, never marked as the current page.
+    for (const name of ['Activity', 'Team']) {
       expect(within(views()).getByRole('button', { name })).not.toHaveAttribute('aria-current');
     }
   });
@@ -84,18 +88,29 @@ describe('top bar on a board page', () => {
     ).toHaveAttribute('aria-current', 'page');
   });
 
-  it('shows Flow as a focusable but unavailable item marked "Soon"', async () => {
-    await renderBoard();
-
-    const flow = within(views()).getByRole('button', { name: 'Flow Soon' });
-    expect(flow).toHaveAttribute('aria-disabled', 'true');
-    expect(flow).toHaveTextContent('Soon');
-    flow.focus();
-    expect(flow).toHaveFocus();
+  it('goes to Flow from its tab, which then becomes the current one', async () => {
+    const { router } = await renderBoard();
+    mock.current.on('GET', `${BOARD}/analytics`, { status: 200, data: analyticsWith() });
+    mock.current.on('GET', `${BOARD}/analytics/forecast`, {
+      status: 200,
+      data: countForecast(),
+    });
+    const flow = within(views()).getByRole('link', { name: 'Flow' });
+    expect(screen.queryByText('Soon')).toBeNull();
 
     fireEvent.click(flow);
 
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Flow' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`${BOARD}/flow`);
+    expect(within(views()).getByRole('link', { name: 'Flow' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(views()).getByRole('link', { name: 'Board' })).not.toHaveAttribute(
+      'aria-current',
+    );
+    // The board was already open: it is not loaded again.
+    expect(mock.current.requestsTo('GET', BOARD)).toHaveLength(1);
   });
 
   it('opens the board history from the Activity tab and returns focus to it', async () => {

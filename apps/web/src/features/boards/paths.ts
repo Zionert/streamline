@@ -13,7 +13,22 @@ export function cardPath(boardId: string, cardKey: string): string {
   return `${boardPath(boardId)}/cards/${encodeURIComponent(cardKey)}`;
 }
 
-/** Navigation state of a card opened from its board: closing it then goes back in history. */
+export const FLOW_PATH_PATTERN = `${BOARD_PATH_PATTERN}/flow`;
+
+/** Address of the flow analytics of a board, e.g. `/boards/b1/flow`. */
+export function flowPath(boardId: string): string {
+  return `${boardPath(boardId)}/flow`;
+}
+
+/** Address of the card details opened over the flow analytics, e.g. `/boards/b1/flow/cards/SL-12`. */
+export function flowCardPath(boardId: string, cardKey: string): string {
+  return `${flowPath(boardId)}/cards/${encodeURIComponent(cardKey)}`;
+}
+
+/**
+ * Navigation state of a card opened from a page of its board (the board or Flow): closing it
+ * then goes back in history.
+ */
 export interface CardLocationState {
   fromBoard: true;
 }

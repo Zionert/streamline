@@ -64,7 +64,9 @@ const TEXT_PAIRS: readonly [string, string][] = [
   // Error text, the exceeded WIP counter, URGENT and the subtle "Delete" button.
   ...BACKGROUNDS.map((background): [string, string] => ['--destructive', background]),
   ['--destructive', '--danger-subtle'],
-  // The HIGH priority on a card.
+  // The HIGH priority on a card; the p85 reference label of the cycle time chart. (The p95
+  // label in --destructive, the p50 label in --text-subtle and the axis ticks in --text-muted
+  // are covered above; p50 is not labelled in --cat-done, below 4.5:1 on the light surface.)
   ['--warning-text', '--surface'],
 ];
 
@@ -81,6 +83,17 @@ const NON_TEXT_PAIRS: readonly [string, string][] = [
   ['--ring', '--surface'],
   ['--ring', '--surface-raised'],
   ['--ring', '--danger-subtle'],
+  // Flow charts on a chart card: category series (throughput bars, cumulative flow outlines),
+  // the percentile and average reference lines (the average in --text-muted, checked below),
+  // the scatter points and the hovered point.
+  ['--cat-backlog', '--surface'],
+  ['--cat-todo', '--surface'],
+  ['--cat-progress', '--surface'],
+  ['--cat-done', '--surface'],
+  ['--warning-text', '--surface'],
+  ['--destructive', '--surface'],
+  ['--text-subtle', '--surface'],
+  ['--primary-text', '--surface'],
   // The boundary of an unchecked checkbox (dialogs and popovers).
   ['--text-muted', '--surface'],
   ['--text-muted', '--surface-raised'],

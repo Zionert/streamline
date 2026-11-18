@@ -1,8 +1,12 @@
 import {
+  activityContentSchema,
+  activityListResponseSchema,
   addDays,
+  cumulativeFlow,
   analyticsResponseSchema,
   forecastResponseSchema,
   mulberry32,
+  type Activity,
   type ColumnCategory,
 } from '@streamline/shared';
 import { compare } from 'bcryptjs';
@@ -15,6 +19,7 @@ import { createApp } from '../app.js';
 import type { DbClient } from '../repositories/db.js';
 import { createTokenService, type TokenService } from '../services/token.service.js';
 import { createTestConfig, createTestDb, resetDatabase } from '../test/helpers.js';
+import { demoFlowCards, demoPlanMetrics } from './demo-metrics.js';
 import { DEMO_HISTORY_DAYS, DEMO_USER_EMAIL, DEMO_USERS, buildDemoPlan } from './demo-plan.js';
 import {
   DEFAULT_DEMO_PASSWORD,
@@ -79,6 +84,53 @@ describe('buildDemoPlan', () => {
   it('is deterministic for the same now', () => {
     const plan = () => buildDemoPlan({ now: NOW, random: mulberry32(DEMO_RANDOM_SEED) });
     expect(plan()).toEqual(plan());
+  });
+
+  // The plan is relative to `now`; only the weekday and the time of day change its shape, so
+  // these clocks cover every weekday at several times of day.
+  const clocks = [
+    ...[-3, -2, -1, 0, 1, 2, 3].map((days) => new Date(NOW.getTime() + days * 86_400_000)),
+    new Date('2026-11-18T02:00:00Z'),
+    new Date('2026-11-18T22:45:00Z'),
+    new Date('2027-03-01T12:00:00Z'),
+  ];
+
+  it.each(clocks)('looks like a stable system at %s', (now) => {
+    const plan = buildDemoPlan({ now, random: mulberry32(DEMO_RANDOM_SEED) });
+    const metrics = demoPlanMetrics(plan, now);
+
+    // Little's law holds within 20% over the default 30 days.
+    expect(Math.abs(metrics.littlesLaw.relativeError ?? Infinity)).toBeLessThanOrEqual(0.2);
+    // A few cards are aging, not most of the work in progress.
+    expect(metrics.aging).toBeGreaterThanOrEqual(2);
+    expect(metrics.aging).toBeLessThanOrEqual(4);
+    // Departures keep up with arrivals: about one card a day in each direction.
+    const created = plan.cards.filter(
+      (card) => now.getTime() - card.createdAt.getTime() <= 30 * 86_400_000,
+    ).length;
+    expect(metrics.completed / created).toBeGreaterThanOrEqual(0.8);
+    expect(metrics.completed / created).toBeLessThanOrEqual(1.4);
+  });
+
+  it('keeps the work in progress roughly constant over the last 30 days', () => {
+    const plan = buildDemoPlan({ now: NOW, random: mulberry32(DEMO_RANDOM_SEED) });
+    const wip = cumulativeFlow(demoFlowCards(plan), {
+      from: new Date(NOW.getTime() - 29 * 86_400_000),
+      to: NOW,
+    }).map((day) => day.IN_PROGRESS);
+    const mean = wip.reduce((sum, count) => sum + count, 0) / wip.length;
+    expect(Math.min(...wip)).toBeGreaterThanOrEqual(mean * 0.4);
+    expect(Math.max(...wip)).toBeLessThanOrEqual(mean * 1.8);
+  });
+
+  it('keeps cards that were reopened', () => {
+    const plan = buildDemoPlan({ now: NOW, random: mulberry32(DEMO_RANDOM_SEED) });
+    const reopened = plan.cards.filter((card) =>
+      card.moves.some(
+        (move, index) => move.column === 'done' && card.moves[index + 1]?.column === 'inProgress',
+      ),
+    );
+    expect(reopened.length).toBeGreaterThanOrEqual(1);
   });
 
   it('follows now, so the data is always recent', () => {
@@ -181,7 +233,10 @@ describe('seedDemo', () => {
     const analytics = analyticsResponseSchema.parse(response.body);
     expect(analytics.aging.thresholdDays).not.toBeNull();
     const aging = analytics.aging.items.filter((item) => item.isAging);
-    expect(aging.length).toBeGreaterThanOrEqual(3);
+    expect(aging.length).toBeGreaterThanOrEqual(2);
+    expect(aging.length).toBeLessThanOrEqual(4);
+    // A roughly stable system: Little's law holds within 20%.
+    expect(Math.abs(analytics.littlesLaw.relativeError ?? Infinity)).toBeLessThanOrEqual(0.2);
     // Steady throughput of roughly one card per day over the last 30 days.
     const completed = analytics.throughput.daily.reduce((sum, day) => sum + day.count, 0);
     expect(completed / 30).toBeGreaterThanOrEqual(0.6);
@@ -199,6 +254,92 @@ describe('seedDemo', () => {
       expect(forecast.status).toBe(200);
       expect(forecastResponseSchema.parse(forecast.body).status).toBe('ok');
     }
+  });
+
+  it('writes a backdated activity log that matches the history', async () => {
+    const result = await seed();
+    const columns = await db.column.findMany({ where: { boardId: result.boardId } });
+    expect(result.activityCount).toBe(columns.length + result.transitionCount);
+
+    const rows = await db.activity.findMany({ where: { boardId: result.boardId } });
+    expect(rows).toHaveLength(result.activityCount);
+    for (const row of rows) {
+      expect(
+        activityContentSchema.safeParse({ type: row.type, payload: row.payload }).success,
+      ).toBe(true);
+    }
+    const columnEntries = rows.filter((row) => row.type === 'COLUMN_CREATED');
+    expect(columnEntries.map((row) => row.cardId)).toEqual(columns.map(() => null));
+    expect(new Set(columnEntries.map((row) => row.actorId))).toEqual(
+      new Set([result.userIds.demo]),
+    );
+
+    const cards = await db.card.findMany({
+      where: { boardId: result.boardId },
+      include: { transitions: { orderBy: { movedAt: 'asc' } } },
+    });
+    const titleOf = new Map(columns.map((column) => [column.id, column.title]));
+    for (const card of cards) {
+      const entries = rows
+        .filter((row) => row.cardId === card.id)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      const key = `DEMO-${String(card.number)}`;
+      // One entry per transition: the creation, then every move, at the same instants and by
+      // the same person.
+      expect(entries.map((entry) => entry.createdAt)).toEqual(
+        card.transitions.map((t) => t.movedAt),
+      );
+      expect(entries.map((entry) => entry.actorId)).toEqual(
+        card.transitions.map((t) => t.movedById),
+      );
+      const [created, ...moves] = entries.map((entry) =>
+        activityContentSchema.parse({ type: entry.type, payload: entry.payload }),
+      );
+      expect(created).toEqual({
+        type: 'CARD_CREATED',
+        payload: {
+          card: { key, title: card.title },
+          column: {
+            id: card.transitions[0]?.toColumnId,
+            name: titleOf.get(card.transitions[0]?.toColumnId ?? ''),
+          },
+        },
+      });
+      moves.forEach((move, index) => {
+        const transition = card.transitions[index + 1];
+        expect(move).toEqual({
+          type: 'CARD_MOVED',
+          payload: {
+            card: { key, title: card.title },
+            from: {
+              id: transition?.fromColumnId,
+              name: titleOf.get(transition?.fromColumnId ?? ''),
+            },
+            to: { id: transition?.toColumnId, name: titleOf.get(transition?.toColumnId ?? '') },
+          },
+        });
+      });
+    }
+
+    // The board history serves the entries newest first, page by page.
+    const served: Activity[] = [];
+    let cursor: string | null = null;
+    do {
+      const query: string = cursor === null ? '?limit=100' : `?limit=100&cursor=${cursor}`;
+      const response = await asDemo(result, `/boards/${result.boardId}/activity${query}`);
+      expect(response.status).toBe(200);
+      const page = activityListResponseSchema.parse(response.body);
+      served.push(...page.activities);
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    expect(served).toHaveLength(result.activityCount);
+    const times = served.map((entry) => Date.parse(entry.createdAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    expect(served[0]?.createdAt).toBe(
+      new Date(Math.max(...rows.map((row) => row.createdAt.getTime()))).toISOString(),
+    );
+    expect(served.at(-1)?.type).toBe('COLUMN_CREATED');
+    expect(served.every((entry) => entry.actor !== null)).toBe(true);
   });
 
   it('replaces the previous demo board and keeps the users', async () => {
@@ -224,6 +365,8 @@ describe('seedDemo', () => {
     expect(await db.board.findUnique({ where: { id: other.id } })).not.toBeNull();
     expect(await db.user.count()).toBe(DEMO_USERS.length + 1);
     expect(await db.card.count()).toBe(second.cardCount);
+    // The activity of the replaced board goes with it (cascade on the board).
+    expect(await db.activity.count()).toBe(second.activityCount);
     const demoUser = await db.user.findUniqueOrThrow({ where: { email: DEMO_USER_EMAIL } });
     expect(await compare('another-password', demoUser.passwordHash)).toBe(true);
   });

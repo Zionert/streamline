@@ -7,7 +7,7 @@ import {
 } from '@streamline/shared';
 import { Plus, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Outlet, useNavigate, useParams } from 'react-router';
+import { Outlet, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar';
@@ -24,6 +24,7 @@ import { AddColumnGhost } from './AddColumnForm';
 import { BoardActionsMenu } from './BoardActionsMenu';
 import type { ColumnComposerHandle } from './BoardColumn';
 import { BoardColumns } from './BoardColumns';
+import { BoardLoadError, BoardNotFound } from './BoardStatusViews';
 import { newCardColumn } from './newCardColumn';
 import { BOARDS_PATH, cardPath, type CardLocationState } from './paths';
 
@@ -48,35 +49,10 @@ export function BoardPage() {
   }, [boardId, openBoard]);
 
   if (status === 'not-found' && openedId === boardId) {
-    return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-        <h1 className="text-[22px] font-semibold tracking-[-0.02em]">Board not found</h1>
-        <p className="text-subtle">This board does not exist or you are not a member of it.</p>
-        <Link
-          to={BOARDS_PATH}
-          className="rounded-sm text-primary-text underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Back to your boards
-        </Link>
-      </main>
-    );
+    return <BoardNotFound />;
   }
   if (status === 'error' && openedId === boardId) {
-    return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-        <p role="alert" className="text-destructive">
-          Could not load the board. {error}
-        </p>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={() => void openBoard(boardId)}>
-            Retry
-          </Button>
-          <Button variant="link" asChild>
-            <Link to={BOARDS_PATH}>Back to your boards</Link>
-          </Button>
-        </div>
-      </main>
-    );
+    return <BoardLoadError message={error ?? ''} onRetry={() => void openBoard(boardId)} />;
   }
   if (status !== 'ready' || !board || board.id !== boardId) {
     return <BoardSkeleton />;

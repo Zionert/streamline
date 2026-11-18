@@ -1,4 +1,10 @@
-import { RankError, type ErrorResponse, type RankErrorCode } from '@streamline/shared';
+import {
+  FlowError,
+  RankError,
+  type ErrorResponse,
+  type FlowErrorCode,
+  type RankErrorCode,
+} from '@streamline/shared';
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
 
@@ -26,6 +32,16 @@ const RANK_ERROR_STATUS: Record<RankErrorCode, number> = {
   INVALID_RANK_ORDER: 409,
 };
 
+/**
+ * A `FlowError` means a flow metric received an argument it cannot use (e.g. a date or a time
+ * zone that the request validation let through). It is answered as a validation error with a
+ * fixed message, since the original one may quote internal values, and logged for diagnosis.
+ */
+const FLOW_ERROR_MESSAGES: Record<FlowErrorCode, string> = {
+  INVALID_ARGUMENT: 'Invalid analytics parameters',
+  INVALID_TIME_ZONE: 'Invalid time zone',
+};
+
 export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next) => {
   let status: number;
   let body: ErrorResponse;
@@ -43,6 +59,10 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next)
     req.log.warn({ err }, 'Rank error');
     status = RANK_ERROR_STATUS[err.code];
     body = { error: { code: err.code, message: err.message } };
+  } else if (err instanceof FlowError) {
+    req.log.warn({ err }, 'Flow error');
+    status = 400;
+    body = { error: { code: 'VALIDATION_ERROR', message: FLOW_ERROR_MESSAGES[err.code] } };
   } else if (err instanceof ZodError) {
     status = 400;
     body = {

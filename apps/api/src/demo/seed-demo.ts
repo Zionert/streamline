@@ -43,6 +43,8 @@ export interface SeedDemoResult {
   boardKey: string;
   cardCount: number;
   transitionCount: number;
+  /** Backdated entries of the board's activity log. */
+  activityCount: number;
   /** Demo boards deleted before creating the new one (0 on the first run). */
   replacedBoards: number;
   userIds: Record<DemoUserKey, string>;
@@ -58,7 +60,8 @@ export function assertDemoSeedAllowed(env: NodeJS.ProcessEnv): void {
 /**
  * Creates (or recreates) the demo board "Webshop launch" (key `DEMO`) owned by
  * `demo@streamline.local`, with three more members as assignees and ~60 cards whose backdated
- * transitions describe the ~60 days before `now`. Users are kept between runs (their name and
+ * transitions (and matching activity log) describe the ~60 days before `now`. Users are kept
+ * between runs (their name and
  * password are updated); the previous demo board of the demo user is replaced.
  */
 export async function seedDemo(db: DbClient, options: SeedDemoOptions): Promise<SeedDemoResult> {
@@ -118,7 +121,7 @@ export async function seedDemo(db: DbClient, options: SeedDemoOptions): Promise<
   });
   const boardColumnRanks = rankSequenceBetween(null, null, DEMO_COLUMNS.length);
 
-  const { boardId, deletedBoards } = await repository.replaceBoard({
+  const { boardId, deletedBoards, activityCount } = await repository.replaceBoard({
     name: DEMO_BOARD.name,
     key: DEMO_BOARD.key,
     ownerId: userIds.demo,
@@ -144,6 +147,7 @@ export async function seedDemo(db: DbClient, options: SeedDemoOptions): Promise<
     boardKey: DEMO_BOARD.key,
     cardCount: cards.length,
     transitionCount: cards.reduce((sum, card) => sum + card.transitions.length, 0),
+    activityCount,
     replacedBoards: deletedBoards,
     userIds,
   };
