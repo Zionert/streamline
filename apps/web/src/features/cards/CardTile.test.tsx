@@ -108,6 +108,38 @@ describe('CardTile', () => {
     },
   );
 
+  it('shows the aging badge in whole days, with its tooltip and in the accessible name', () => {
+    const medium = { ...card, priority: 'MEDIUM' as const, assigneeId: null };
+    render(<CardTile card={medium} assignee={null} agingDays={6.8} onOpen={() => undefined} />);
+
+    const tile = screen.getByRole('button');
+    const badge = within(tile).getByTestId('card-aging');
+    expect(badge).toHaveTextContent('Aging · 6d');
+    expect(badge).toHaveAttribute('title', 'In progress for 6 days');
+    expect(badge).toHaveClass('font-mono', 'text-xs', 'text-warning-text');
+    expect(tile).toHaveAccessibleName(
+      `SB-12 ${card.title}, priority Medium, unassigned, aging: in progress for 6 days`,
+    );
+  });
+
+  it.each([
+    [1.2, 'Aging · 1d', 'In progress for 1 day'],
+    [0.4, 'Aging · <1d', 'In progress for less than a day'],
+  ])('labels an age of %d days', (ageDays, text, title) => {
+    render(<CardTile card={card} assignee={jan} agingDays={ageDays} onOpen={() => undefined} />);
+
+    const badge = screen.getByTestId('card-aging');
+    expect(badge).toHaveTextContent(text);
+    expect(badge).toHaveAttribute('title', title);
+  });
+
+  it('has no aging badge by default', () => {
+    render(<CardTile card={card} assignee={jan} onOpen={() => undefined} />);
+
+    expect(screen.queryByTestId('card-aging')).toBeNull();
+    expect(screen.getByRole('button')).not.toHaveAccessibleName(/aging/);
+  });
+
   it('opens on click, Enter and (when not draggable) Space', () => {
     const onOpen = vi.fn();
     render(<CardTile card={card} assignee={null} onOpen={onOpen} />);

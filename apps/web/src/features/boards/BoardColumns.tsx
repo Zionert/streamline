@@ -1,5 +1,5 @@
 import { DragDropContext, Draggable, Droppable, type DropResult } from '@hello-pangea/dnd';
-import type { Card, Column, Label } from '@streamline/shared';
+import type { Card, CardAgingItem, Column, Label } from '@streamline/shared';
 
 import type { AvatarStackPerson } from '@/components/ui/avatar';
 import { getCardMove } from '@/features/cards/cardDrag';
@@ -31,6 +31,8 @@ export interface BoardColumnsProps {
   isCardDragDisabled: boolean;
   membersById: ReadonlyMap<string, AvatarStackPerson>;
   labelsById: ReadonlyMap<string, Label>;
+  /** Aging cards by id (badge on tiles in IN_PROGRESS columns). */
+  agingByCardId?: ReadonlyMap<string, CardAgingItem>;
   onMoveCard: (cardId: string, toColumnId: string, toIndex: number) => void;
   onOpenCard: (card: Card) => void;
   /** Receives each column's composer handle (`null` when the column goes away). */
@@ -54,6 +56,7 @@ export function BoardColumns({
   isCardDragDisabled,
   membersById,
   labelsById,
+  agingByCardId,
   onMoveCard,
   onOpenCard,
   onComposerRef,
@@ -112,6 +115,7 @@ export function BoardColumns({
                         isCardDragDisabled={isCardDragDisabled}
                         membersById={membersById}
                         labelsById={labelsById}
+                        {...(agingByCardId ? { agingByCardId } : {})}
                         onOpenCard={onOpenCard}
                         isCardHidden={isCardHidden}
                         dragHandleProps={canWrite ? draggableProvided.dragHandleProps : null}

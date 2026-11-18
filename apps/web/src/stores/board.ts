@@ -53,6 +53,7 @@ import {
 import * as cardsApi from '@/features/cards/cardsApi';
 import { removeLabelFromCards, toggleLabelId, upsertLabel } from '@/features/labels/labelOrder';
 import * as labelsApi from '@/features/labels/labelsApi';
+import { publishBoardChange } from '@/features/realtime/boardChanges';
 import {
   applyCardRanks,
   applyRanks,
@@ -688,6 +689,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       if (!isCurrent()) {
         return column;
       }
+      publishBoardChange(boardId, { type: 'local', kind: 'column-created' });
       // New columns go to the end. The server may have rebalanced all ranks to make room and
       // returns only the new column: if it does not sort after the last local one, reload.
       const columns = [...get().columns, column];
@@ -745,6 +747,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         if (!isCurrent()) {
           return;
         }
+        publishBoardChange(boardId, { type: 'local', kind: 'column-moved' });
         const updated = get().columns.map((column) => (column.id === moved.id ? moved : column));
         set({ columns: updated });
         // The response carries only the moved column. If its new rank does not fit between the
@@ -788,6 +791,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       const column = await columnsApi.updateColumnSettings(boardId, columnId, input);
       if (isCurrent()) {
         replaceColumn(column);
+        publishBoardChange(boardId, { type: 'local', kind: 'column-settings' });
       }
       return column;
     },
@@ -796,6 +800,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       const { boardId, isCurrent } = captureBoard();
       await columnsApi.deleteColumn(boardId, columnId);
       if (isCurrent()) {
+        publishBoardChange(boardId, { type: 'local', kind: 'column-deleted' });
         set((state) => ({
           columns: state.columns.filter((column) => column.id !== columnId),
           cardsByColumn: Object.fromEntries(
@@ -830,6 +835,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       if (!isCurrent()) {
         return card;
       }
+      publishBoardChange(boardId, { type: 'local', kind: 'card-created' });
       // New cards go to the end of the column. The server may have rebalanced the column to make
       // room and returns only the new card: if it does not sort after the last local one, reload.
       const cards = [...cardsOf(get().cardsByColumn, columnId), card];
@@ -893,6 +899,9 @@ export const useBoardStore = create<BoardState>()((set, get) => {
         if (!isCurrent()) {
           return;
         }
+        if (!sameColumn) {
+          publishBoardChange(boardId, { type: 'local', kind: 'card-moved' });
+        }
         const current = findCard(get().cardsByColumn, cardId);
         if (current && current.columnId === card.columnId) {
           const updated = replaceCard(get().cardsByColumn, card);
@@ -952,6 +961,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       try {
         const card = await cardsApi.updateCard(boardId, cardId, input);
         if (isCurrent()) {
+          publishBoardChange(boardId, { type: 'local', kind: 'card-updated' });
           if (hasLabelToggleInFlight(cardId)) {
             noteConfirmedLabels(card);
           }
@@ -987,6 +997,7 @@ export const useBoardStore = create<BoardState>()((set, get) => {
       const { boardId, isCurrent } = captureBoard();
       await cardsApi.deleteCard(boardId, cardId);
       if (isCurrent()) {
+        publishBoardChange(boardId, { type: 'local', kind: 'card-deleted' });
         setCards((cards) => removeCard(cards, cardId));
         await reloadIfListInFlight();
       }

@@ -7,7 +7,14 @@ import { formatCount, formatDays } from './flowFormat';
 import { completedCount } from './flowMetrics';
 
 /** Key figures of the range: completed cards, cycle and lead time p85, work in progress. */
-export function KpiRow({ analytics }: { analytics: AnalyticsResponse }) {
+export function KpiRow({
+  analytics,
+  rangeCaption,
+}: {
+  analytics: AnalyticsResponse;
+  /** The selected range in running text, e.g. `last 30 days`. */
+  rangeCaption: string;
+}) {
   const { cycleTime, leadTime } = analytics.leadCycle;
   const inProgress = analytics.aging.items.length;
   const aging = analytics.aging.items.filter((item) => item.isAging).length;
@@ -20,7 +27,7 @@ export function KpiRow({ analytics }: { analytics: AnalyticsResponse }) {
       <KpiTile
         label="Completed"
         value={formatCount(completedCount(analytics.throughput))}
-        caption="last 30 days"
+        caption={rangeCaption}
       />
       <KpiTile
         label="Cycle time p85"

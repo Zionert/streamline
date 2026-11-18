@@ -1,5 +1,5 @@
 import { Draggable, Droppable, type DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
-import type { Card, Column, Label } from '@streamline/shared';
+import type { Card, CardAgingItem, Column, Label } from '@streamline/shared';
 import {
   Ellipsis,
   GripVertical,
@@ -38,6 +38,7 @@ import { getBoardErrorMessage } from './boardErrorMessage';
 
 const NO_MEMBERS: ReadonlyMap<string, AvatarStackPerson> = new Map();
 const NO_LABELS: ReadonlyMap<string, Label> = new Map();
+const NO_AGING: ReadonlyMap<string, CardAgingItem> = new Map();
 
 /** Toast id of the message about a full column with a strict WIP limit. */
 const WIP_TOAST_ID = 'wip-limit-reached';
@@ -68,6 +69,11 @@ export interface BoardColumnProps {
   membersById?: ReadonlyMap<string, AvatarStackPerson>;
   /** Board labels by id, for the labels of the cards. */
   labelsById?: ReadonlyMap<string, Label>;
+  /**
+   * Aging cards of the board by id; their badge shows only while the column is IN_PROGRESS, so a
+   * card moved out of progress (or a column changed to another category) loses it at once.
+   */
+  agingByCardId?: ReadonlyMap<string, CardAgingItem>;
   onOpenCard?: (card: Card) => void;
   /** Whether a card is hidden by the active toolbar filter (for the quick create hint). */
   isCardHidden?: (card: Card) => boolean;
@@ -90,6 +96,7 @@ export function BoardColumn({
   isCardDragDisabled = true,
   membersById = NO_MEMBERS,
   labelsById = NO_LABELS,
+  agingByCardId = NO_AGING,
   onOpenCard,
   isCardHidden,
   dragHandleProps,
@@ -275,6 +282,11 @@ export function BoardColumn({
                         card.assigneeId === null ? null : (membersById.get(card.assigneeId) ?? null)
                       }
                       labels={labelsOfCard(card, labelsById)}
+                      agingDays={
+                        column.category === 'IN_PROGRESS'
+                          ? (agingByCardId.get(card.id)?.ageDays ?? null)
+                          : null
+                      }
                       onOpen={() => onOpenCard?.(card)}
                       isDraggable={canDragCards}
                       isDragging={draggableSnapshot.isDragging}

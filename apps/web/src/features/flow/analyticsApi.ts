@@ -9,17 +9,15 @@ import { api } from '@/lib/api';
 
 const analyticsUrl = (boardId: string) => `/boards/${encodeURIComponent(boardId)}/analytics`;
 
-/**
- * Flow metrics of the board for the default range of the API (the last 30 days, ending today
- * in `timeZone`).
- */
+/** Flow metrics of the board for the local days `from`..`to` (inclusive) in `timeZone`. */
 export async function getAnalytics(
   boardId: string,
+  range: { from: string; to: string },
   timeZone: string,
   signal?: AbortSignal,
 ): Promise<AnalyticsResponse> {
   const response = await api.get<unknown>(analyticsUrl(boardId), {
-    params: { timeZone },
+    params: { from: range.from, to: range.to, timeZone },
     ...(signal ? { signal } : {}),
   });
   return analyticsResponseSchema.parse(response.data);

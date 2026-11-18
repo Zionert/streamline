@@ -4,6 +4,7 @@ import {
   ANALYTICS_MAX_RANGE_DAYS,
   FORECAST_DEFAULT_SAMPLE_DAYS,
   FORECAST_MAX_REMAINING,
+  agingResponseSchema,
   analyticsQuerySchema,
   analyticsResponseSchema,
   forecastQuerySchema,
@@ -199,6 +200,33 @@ describe('analyticsResponseSchema', () => {
         ...sampleAnalytics,
         throughput: { ...sampleAnalytics.throughput, daily: [{ date: '2026-11-01', count: -1 }] },
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe('agingResponseSchema', () => {
+  const item = {
+    cardId: 'c1',
+    cycleStartedAt: '2026-10-27T12:00:00.000Z',
+    ageDays: 21,
+    isAging: true,
+  };
+  const sample = { generatedAt: '2026-11-17T12:00:00.000Z', thresholdDays: 8.3, items: [item] };
+
+  it('accepts the aging work in progress, also without a threshold', () => {
+    expect(agingResponseSchema.parse(sample)).toEqual(sample);
+    const empty = { ...sample, thresholdDays: null, items: [] };
+    expect(agingResponseSchema.parse(empty)).toEqual(empty);
+  });
+
+  it('drops the fields only the analytics carry and rejects negative ages', () => {
+    const parsed = agingResponseSchema.parse({
+      ...sample,
+      items: [{ ...item, cardKey: 'SB-1', title: 'Fix login' }],
+    });
+    expect(parsed.items).toEqual([item]);
+    expect(
+      agingResponseSchema.safeParse({ ...sample, items: [{ ...item, ageDays: -1 }] }).success,
     ).toBe(false);
   });
 });

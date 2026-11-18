@@ -1,6 +1,7 @@
 import {
   analyticsQuerySchema,
   forecastQuerySchema,
+  type AgingResponse,
   type AnalyticsResponse,
   type ForecastResponse,
 } from '@streamline/shared';
@@ -14,6 +15,11 @@ export function createAnalyticsController(analyticsService: AnalyticsService) {
     get: async (req: Request, res: Response<AnalyticsResponse>): Promise<void> => {
       const query = analyticsQuerySchema.parse(req.query);
       res.json(await analyticsService.getAnalytics(getBoardMembership(res), query));
+    },
+
+    /** Takes no query parameters: the ages do not depend on a range or a time zone. */
+    aging: async (_req: Request, res: Response<AgingResponse>): Promise<void> => {
+      res.json(await analyticsService.getAging(getBoardMembership(res)));
     },
 
     forecast: async (req: Request, res: Response<ForecastResponse>): Promise<void> => {

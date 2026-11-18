@@ -207,6 +207,29 @@ export type AnalyticsResponse = z.infer<typeof analyticsResponseSchema>;
 export type LeadCycleScatterPoint = z.infer<typeof leadCyclePointSchema>;
 export type AgingItem = z.infer<typeof agingItemSchema>;
 
+/** The age of a card in progress, as shown on the board tiles. */
+export const cardAgingItemSchema = agingItemSchema.pick({
+  cardId: true,
+  cycleStartedAt: true,
+  ageDays: true,
+  isAging: true,
+});
+
+/**
+ * Response body of `GET /boards/:boardId/analytics/aging`: the current aging work in progress
+ * only (no range, no time zone), with the same threshold as the `aging` part of the analytics.
+ */
+export const agingResponseSchema = z.object({
+  /** Instant the ages refer to. */
+  generatedAt: z.iso.datetime(),
+  thresholdDays: z.number().nullable(),
+  /** Cards currently in IN_PROGRESS columns, oldest first. */
+  items: z.array(cardAgingItemSchema),
+});
+
+export type CardAgingItem = z.infer<typeof cardAgingItemSchema>;
+export type AgingResponse = z.infer<typeof agingResponseSchema>;
+
 /** The daily throughput samples a forecast is based on (complete days ending yesterday). */
 export const forecastSampleSchema = z.object({
   days: z.int().min(1),
