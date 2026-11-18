@@ -115,17 +115,31 @@ const CARD_TITLES: readonly (readonly [string, readonly DemoLabelKey[]])[] = [
 
 /** Cards (by index) completed, then reopened and completed again. */
 const REOPENED = new Set([4, 13, 22]);
-/** Cards (by index) stuck in progress for weeks. */
+/**
+ * Cards (by index) still in progress, started about two weeks ago: older than most cycle times,
+ * so they show up as aging, yet recent enough to keep the work in progress steady (cards stuck
+ * for the whole period would pile up and break Little's law).
+ */
 const STUCK_IN_PROGRESS = new Map<number, DemoColumnKey>([
-  [19, 'inProgress'],
-  [26, 'review'],
-  [31, 'inProgress'],
-  [36, 'inProgress'],
+  [46, 'inProgress'],
+  [49, 'review'],
+  [52, 'inProgress'],
 ]);
+/** Completed cards (by index) that took a long time in review: the tail of the cycle times. */
+const SLOW = new Set([21, 28, 35, 41]);
+/** Completed cards (by index) that were in progress for two weeks or more before finishing. */
+const LONG_RUNNING = new Set([16, 19, 26]);
 /** Cards (by index) that never leave the backlog. */
 const ICEBOX = new Set([33, 40, 51]);
 /** Recent cards (by index) created in To Do and still waiting there. */
 const WAITING_IN_TODO = new Set([54, 57, 60]);
+
+/** Days of work before a card moves to review: two weeks or more for the long-running cards. */
+function reviewAfterDays(index: number, between: (min: number, max: number) => number): number {
+  if (LONG_RUNNING.has(index)) return between(13, 17);
+  if (SLOW.has(index)) return between(6, 10);
+  return between(0.8, 4.5);
+}
 
 export interface DemoMove {
   at: Date;
@@ -217,7 +231,7 @@ export function buildDemoPlan({ now, random }: { now: Date; random: RandomSource
       move(start, 0);
       if (start === 'backlog') move('todo', between(2, 12));
       if (start !== 'inProgress') move('inProgress', between(0.5, 6));
-      move('review', between(0.8, 4.5));
+      move('review', reviewAfterDays(index, between));
       move('done', between(0.1, 1.5));
       if (REOPENED.has(index)) {
         move('inProgress', between(1, 3));

@@ -2,6 +2,7 @@ import {
   activityContentSchema,
   activityListResponseSchema,
   addDays,
+  cumulativeFlow,
   analyticsResponseSchema,
   forecastResponseSchema,
   mulberry32,
@@ -18,6 +19,7 @@ import { createApp } from '../app.js';
 import type { DbClient } from '../repositories/db.js';
 import { createTokenService, type TokenService } from '../services/token.service.js';
 import { createTestConfig, createTestDb, resetDatabase } from '../test/helpers.js';
+import { demoFlowCards, demoPlanMetrics } from './demo-metrics.js';
 import { DEMO_HISTORY_DAYS, DEMO_USER_EMAIL, DEMO_USERS, buildDemoPlan } from './demo-plan.js';
 import {
   DEFAULT_DEMO_PASSWORD,
@@ -82,6 +84,53 @@ describe('buildDemoPlan', () => {
   it('is deterministic for the same now', () => {
     const plan = () => buildDemoPlan({ now: NOW, random: mulberry32(DEMO_RANDOM_SEED) });
     expect(plan()).toEqual(plan());
+  });
+
+  // The plan is relative to `now`; only the weekday and the time of day change its shape, so
+  // these clocks cover every weekday at several times of day.
+  const clocks = [
+    ...[-3, -2, -1, 0, 1, 2, 3].map((days) => new Date(NOW.getTime() + days * 86_400_000)),
+    new Date('2026-11-18T02:00:00Z'),
+    new Date('2026-11-18T22:45:00Z'),
+    new Date('2027-03-01T12:00:00Z'),
+  ];
+
+  it.each(clocks)('looks like a stable system at %s', (now) => {
+    const plan = buildDemoPlan({ now, random: mulberry32(DEMO_RANDOM_SEED) });
+    const metrics = demoPlanMetrics(plan, now);
+
+    // Little's law holds within 20% over the default 30 days.
+    expect(Math.abs(metrics.littlesLaw.relativeError ?? Infinity)).toBeLessThanOrEqual(0.2);
+    // A few cards are aging, not most of the work in progress.
+    expect(metrics.aging).toBeGreaterThanOrEqual(2);
+    expect(metrics.aging).toBeLessThanOrEqual(4);
+    // Departures keep up with arrivals: about one card a day in each direction.
+    const created = plan.cards.filter(
+      (card) => now.getTime() - card.createdAt.getTime() <= 30 * 86_400_000,
+    ).length;
+    expect(metrics.completed / created).toBeGreaterThanOrEqual(0.8);
+    expect(metrics.completed / created).toBeLessThanOrEqual(1.4);
+  });
+
+  it('keeps the work in progress roughly constant over the last 30 days', () => {
+    const plan = buildDemoPlan({ now: NOW, random: mulberry32(DEMO_RANDOM_SEED) });
+    const wip = cumulativeFlow(demoFlowCards(plan), {
+      from: new Date(NOW.getTime() - 29 * 86_400_000),
+      to: NOW,
+    }).map((day) => day.IN_PROGRESS);
+    const mean = wip.reduce((sum, count) => sum + count, 0) / wip.length;
+    expect(Math.min(...wip)).toBeGreaterThanOrEqual(mean * 0.4);
+    expect(Math.max(...wip)).toBeLessThanOrEqual(mean * 1.8);
+  });
+
+  it('keeps cards that were reopened', () => {
+    const plan = buildDemoPlan({ now: NOW, random: mulberry32(DEMO_RANDOM_SEED) });
+    const reopened = plan.cards.filter((card) =>
+      card.moves.some(
+        (move, index) => move.column === 'done' && card.moves[index + 1]?.column === 'inProgress',
+      ),
+    );
+    expect(reopened.length).toBeGreaterThanOrEqual(1);
   });
 
   it('follows now, so the data is always recent', () => {
@@ -184,7 +233,10 @@ describe('seedDemo', () => {
     const analytics = analyticsResponseSchema.parse(response.body);
     expect(analytics.aging.thresholdDays).not.toBeNull();
     const aging = analytics.aging.items.filter((item) => item.isAging);
-    expect(aging.length).toBeGreaterThanOrEqual(3);
+    expect(aging.length).toBeGreaterThanOrEqual(2);
+    expect(aging.length).toBeLessThanOrEqual(4);
+    // A roughly stable system: Little's law holds within 20%.
+    expect(Math.abs(analytics.littlesLaw.relativeError ?? Infinity)).toBeLessThanOrEqual(0.2);
     // Steady throughput of roughly one card per day over the last 30 days.
     const completed = analytics.throughput.daily.reduce((sum, day) => sum + day.count, 0);
     expect(completed / 30).toBeGreaterThanOrEqual(0.6);

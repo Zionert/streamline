@@ -16,8 +16,16 @@ import {
 import { flowCardPath, type CardLocationState } from '@/features/boards/paths';
 
 import { ChartCard, DataTable } from './ChartCard';
-import { TooltipBox } from './chartParts';
-import { CHART_MARGIN, X_TICK_GAP, axisStyle } from './chartStyle';
+import { ReferenceLegend, TooltipBox } from './chartParts';
+import { CHART_MARGIN, axisStyle } from './chartStyle';
+import {
+  axisMsToDateKey,
+  dateKeyToMs,
+  dateTicks,
+  instantToAxisMs,
+  rangeDomain,
+  tickLabel,
+} from './dateTicks';
 import {
   NO_VALUE,
   formatDays,
@@ -34,6 +42,7 @@ import {
   type PercentileKey,
 } from './flowMetrics';
 import type { ChartColors } from './useChartColors';
+import { useMaxTicks } from './useMaxTicks';
 
 type PlottedPoint = LeadCycleScatterPoint & { cycleTimeDays: number; x: number };
 
@@ -54,12 +63,13 @@ interface CycleTimeChartProps {
  */
 export function CycleTimeChart({ boardId, analytics, colors }: CycleTimeChartProps) {
   const navigate = useNavigate();
+  const maxTicks = useMaxTicks();
   const { range, leadCycle } = analytics;
   const timeZone = range.timeZone;
   const { plotted, withoutCycleTime } = cycleTimePoints(leadCycle.points);
   const data: PlottedPoint[] = plotted.map((point) => ({
     ...point,
-    x: Date.parse(point.completedAt),
+    x: instantToAxisMs(point.completedAt, timeZone),
   }));
   const lines = percentileLines(leadCycle.cycleTime);
   const sampleCount = leadCycle.cycleTime.count;
@@ -74,7 +84,14 @@ export function CycleTimeChart({ boardId, analytics, colors }: CycleTimeChartPro
     ...lineColors,
     p50: colors.textSubtle,
   };
+  const legend = lines.map(({ key, value }) => ({
+    key,
+    label: percentileLabel(key, value),
+    lineColor: lineColors[key],
+    textColor: labelColors[key],
+  }));
   const axis = axisStyle(colors);
+  const ticks = dateTicks(range.from, range.to, maxTicks);
 
   const openCard = (cardKey: string) => {
     void navigate(flowCardPath(boardId, cardKey), { state: CARD_STATE });
@@ -132,6 +149,8 @@ export function CycleTimeChart({ boardId, analytics, colors }: CycleTimeChartPro
     <ChartCard
       title="Cycle time"
       description="Days from the start of work to done, per completed card"
+      legend={<ReferenceLegend items={legend} />}
+      tall
       footer={footer}
       table={<CycleTimeTable boardId={boardId} points={leadCycle.points} timeZone={timeZone} />}
     >
@@ -148,10 +167,11 @@ export function CycleTimeChart({ boardId, analytics, colors }: CycleTimeChartPro
             type="number"
             dataKey="x"
             scale="time"
-            domain={['dataMin', 'dataMax']}
-            padding={{ left: 12, right: 12 }}
-            minTickGap={X_TICK_GAP}
-            tickFormatter={(value: number) => formatInstantDayMonth(value, timeZone)}
+            domain={rangeDomain(range.from, range.to)}
+            padding={{ left: 8, right: 8 }}
+            ticks={ticks.keys.map(dateKeyToMs)}
+            interval={0}
+            tickFormatter={(value: number) => tickLabel(axisMsToDateKey(value), ticks.step)}
             {...axis}
           />
           <YAxis type="number" dataKey="cycleTimeDays" width={36} allowDecimals={false} {...axis} />
@@ -169,12 +189,6 @@ export function CycleTimeChart({ boardId, analytics, colors }: CycleTimeChartPro
               stroke={lineColors[key]}
               strokeDasharray="4 4"
               ifOverflow="extendDomain"
-              label={{
-                value: percentileLabel(key, value),
-                position: 'insideTopRight',
-                fill: labelColors[key],
-                fontSize: 11,
-              }}
             />
           ))}
           <Scatter data={data} isAnimationActive={false} shape={renderPoint} />

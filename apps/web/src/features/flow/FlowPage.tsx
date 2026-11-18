@@ -14,7 +14,7 @@ import { CumulativeFlowChart } from './CumulativeFlowChart';
 import { CycleTimeChart } from './CycleTimeChart';
 import { browserTimeZone } from './flowFormat';
 import { completedCount } from './flowMetrics';
-import { FlowBodySkeleton, FlowSkeleton } from './FlowSkeleton';
+import { FLOW_CONTENT_CLASS, FlowBodySkeleton, FlowSkeleton } from './FlowSkeleton';
 import { ForecastPanel } from './ForecastPanel';
 import { KpiRow } from './KpiRow';
 import { LittlesLawBlock } from './LittlesLawBlock';
@@ -61,8 +61,10 @@ export default function FlowPage() {
   }
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-      <FlowHeader board={board} timeZone={timeZone} />
-      <FlowBody board={board} analytics={analytics} timeZone={timeZone} />
+      <div className={FLOW_CONTENT_CLASS}>
+        <FlowHeader board={board} timeZone={timeZone} />
+        <FlowBody board={board} analytics={analytics} timeZone={timeZone} />
+      </div>
       {/* Card details: a modal route over the page. */}
       <Outlet />
     </main>

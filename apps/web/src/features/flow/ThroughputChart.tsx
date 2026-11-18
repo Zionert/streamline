@@ -13,8 +13,9 @@ import {
 } from 'recharts';
 
 import { ChartCard, DataTable } from './ChartCard';
-import { TooltipBox } from './chartParts';
-import { CHART_MARGIN, X_TICK_GAP, axisStyle } from './chartStyle';
+import { ReferenceLegend, TooltipBox } from './chartParts';
+import { CHART_MARGIN, axisStyle } from './chartStyle';
+import { dateTicks, thinTicks, tickLabel, type DateTicks } from './dateTicks';
 import { formatDayMonth, formatFullDate, pluralize } from './flowFormat';
 import {
   throughputSeries,
@@ -24,6 +25,7 @@ import {
 } from './flowMetrics';
 import { SegmentedToggle } from './SegmentedToggle';
 import type { ChartColors } from './useChartColors';
+import { useMaxTicks } from './useMaxTicks';
 
 const GRANULARITY_OPTIONS: readonly { value: ThroughputGranularity; label: string }[] = [
   { value: 'day', label: 'Day' },
@@ -38,8 +40,10 @@ interface ThroughputChartProps {
 /** Cards completed per day or per week (labelled by its Monday), with their average. */
 export function ThroughputChart({ throughput, colors }: ThroughputChartProps) {
   const [granularity, setGranularity] = useState<ThroughputGranularity>('day');
+  const maxTicks = useMaxTicks();
   const series = throughputSeries(throughput, granularity);
   const axis = axisStyle(colors);
+  const ticks = barTicks(series.bars, granularity, maxTicks);
 
   return (
     <ChartCard
@@ -53,7 +57,18 @@ export function ThroughputChart({ throughput, colors }: ThroughputChartProps) {
           onChange={setGranularity}
         />
       }
-      footer={<p className="text-xs text-subtle tabular-nums">{series.averageLabel}</p>}
+      legend={
+        <ReferenceLegend
+          items={[
+            {
+              key: 'average',
+              label: series.averageLabel,
+              lineColor: colors.textMuted,
+              textColor: colors.textMuted,
+            },
+          ]}
+        />
+      }
       table={<ThroughputTable bars={series.bars} granularity={granularity} />}
     >
       <ResponsiveContainer width="100%" height="100%">
@@ -68,8 +83,9 @@ export function ThroughputChart({ throughput, colors }: ThroughputChartProps) {
           <CartesianGrid vertical={false} stroke={colors.border} />
           <XAxis
             dataKey="date"
-            minTickGap={X_TICK_GAP}
-            tickFormatter={(value: string) => formatDayMonth(value)}
+            ticks={ticks.keys}
+            interval={0}
+            tickFormatter={(value: string) => tickLabel(value, ticks.step)}
             {...axis}
           />
           <YAxis width={36} allowDecimals={false} {...axis} />
@@ -92,17 +108,34 @@ export function ThroughputChart({ throughput, colors }: ThroughputChartProps) {
             stroke={colors.textMuted}
             strokeDasharray="4 4"
             ifOverflow="extendDomain"
-            label={{
-              value: series.averageLabel,
-              position: 'insideTopRight',
-              fill: colors.textMuted,
-              fontSize: 11,
-            }}
           />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
   );
+}
+
+/** Ticks of the bars: by the date rules for days, every n-th Monday for weeks. */
+function barTicks(
+  bars: readonly ThroughputBar[],
+  granularity: ThroughputGranularity,
+  maxTicks: number,
+): DateTicks {
+  const first = bars[0];
+  const last = bars.at(-1);
+  if (!first || !last) {
+    return { step: 'day', keys: [] };
+  }
+  if (granularity === 'day') {
+    return dateTicks(first.date, last.date, maxTicks);
+  }
+  return {
+    step: 'week',
+    keys: thinTicks(
+      bars.map((bar) => bar.date),
+      maxTicks,
+    ),
+  };
 }
 
 function isBar(value: unknown): value is ThroughputBar {

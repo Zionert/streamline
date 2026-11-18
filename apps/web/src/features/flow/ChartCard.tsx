@@ -10,8 +10,14 @@ interface ChartCardProps {
   description: string;
   /** Controls next to "View data" (e.g. a granularity toggle). */
   controls?: ReactNode;
-  /** The chart; it fills the plot area (260 px high, 220 px below 640 px). */
+  /** Names of the reference lines, shown in a row above the plot. */
+  legend?: ReactNode;
+  /**
+   * The chart; it fills the plot area: 260 px high, 220 px below 640 px, and with `tall` 300 px
+   * from 1280 px.
+   */
   children: ReactNode;
+  tall?: boolean;
   /** Notes and the legend under the chart. */
   footer?: ReactNode;
   /** Accessible table with the data of the chart, shown with "View data". */
@@ -27,7 +33,9 @@ export function ChartCard({
   title,
   description,
   controls,
+  legend,
   children,
+  tall = false,
   footer,
   table,
   className,
@@ -69,7 +77,8 @@ export function ChartCard({
           </Button>
         </div>
       </figcaption>
-      <div className="h-[220px] min-w-0 sm:h-[260px]">{children}</div>
+      {legend}
+      <div className={cn('h-[220px] min-w-0 sm:h-[260px]', tall && 'xl:h-[300px]')}>{children}</div>
       {footer}
       <div id={tableId} hidden={!showData} className="max-h-80 overflow-auto">
         {showData && table}

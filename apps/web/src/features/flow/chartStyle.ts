@@ -14,8 +14,5 @@ export function axisStyle(colors: ChartColors) {
   } as const;
 }
 
-/** Margin of every chart, leaving room for the reference line labels above the plot. */
-export const CHART_MARGIN = { top: 16, right: 8, bottom: 0, left: 0 } as const;
-
-/** Space between X axis labels; fewer labels fit on narrow screens. */
-export const X_TICK_GAP = 24;
+/** Margin of every chart (the reference lines are named in a legend above the plot). */
+export const CHART_MARGIN = { top: 8, right: 8, bottom: 0, left: 0 } as const;

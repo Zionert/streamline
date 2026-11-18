@@ -12,10 +12,12 @@ import {
 
 import { ChartCard, DataTable } from './ChartCard';
 import { SeriesSwatch, TooltipBox } from './chartParts';
-import { CHART_MARGIN, X_TICK_GAP, axisStyle } from './chartStyle';
+import { CHART_MARGIN, axisStyle } from './chartStyle';
+import { dateTicks, tickLabel } from './dateTicks';
 import { formatDayMonth, formatFullDate } from './flowFormat';
 import { cfdCategories, cumulativeFlowSummary, type FlowCategoryKey } from './flowMetrics';
 import type { ChartColors } from './useChartColors';
+import { useMaxTicks } from './useMaxTicks';
 
 type CumulativeFlowPoint = AnalyticsResponse['cumulativeFlow'][number];
 
@@ -44,6 +46,11 @@ export function CumulativeFlowChart({ points, colors }: CumulativeFlowChartProps
   const stack = [...categories].reverse();
   const palette = categoryColors(colors);
   const axis = axisStyle(colors);
+  const maxTicks = useMaxTicks();
+  const first = points[0];
+  const last = points.at(-1);
+  const ticks =
+    first && last ? dateTicks(first.date, last.date, maxTicks) : { step: 'day' as const, keys: [] };
 
   return (
     <ChartCard
@@ -72,8 +79,9 @@ export function CumulativeFlowChart({ points, colors }: CumulativeFlowChartProps
           <CartesianGrid vertical={false} stroke={colors.border} />
           <XAxis
             dataKey="date"
-            minTickGap={X_TICK_GAP}
-            tickFormatter={(value: string) => formatDayMonth(value)}
+            ticks={ticks.keys}
+            interval={0}
+            tickFormatter={(value: string) => tickLabel(value, ticks.step)}
             {...axis}
           />
           <YAxis width={36} allowDecimals={false} {...axis} />

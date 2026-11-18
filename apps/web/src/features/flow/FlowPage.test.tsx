@@ -1,4 +1,4 @@
-import type { AnalyticsResponse, ForecastResponse } from '@streamline/shared';
+import { addDays, type AnalyticsResponse, type ForecastResponse } from '@streamline/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -20,6 +20,7 @@ import {
   horizonExceededForecast,
   insufficientForecast,
 } from '@/test/flowFixtures';
+import { setMediaQuery } from '@/test/matchMedia';
 import { deferred, errorBody, type MockResponder } from '@/test/mockAdapter';
 import { renderApp, setupMockApi } from '@/test/renderApp';
 
@@ -98,6 +99,26 @@ function showData(name: string) {
   return within(figure(name)).getByRole('table');
 }
 
+/** Names in the legend row of reference lines above a chart's plot. */
+function legendLabels(chart: HTMLElement): string[] {
+  return within(chart)
+    .getAllByRole('listitem')
+    .filter((item) => item.closest('[aria-label="Reference lines"]'))
+    .map((item) => item.textContent);
+}
+
+/** Every text drawn inside the chart's SVG (axis ticks, any in-plot labels). */
+function svgTexts(chart: HTMLElement): string[] {
+  return [...chart.querySelectorAll('svg text')].map((text) => text.textContent);
+}
+
+/** Labels of the X axis ticks. */
+function xTicks(chart: HTMLElement): string[] {
+  return [
+    ...chart.querySelectorAll('.recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value'),
+  ].map((text) => text.textContent);
+}
+
 /** Waits for the analytics to be shown (the key figures render with them). */
 function analyticsShown() {
   return screen.findByLabelText('Key figures');
@@ -117,6 +138,26 @@ describe('Flow page route', () => {
     expect(mock.current.requestsTo('GET', ANALYTICS)[0]?.params).toEqual({
       timeZone: browserTimeZone(),
     });
+  });
+
+  it('keeps the content in a centred column on wide screens', async () => {
+    await renderFlow();
+    await analyticsShown();
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Flow' });
+    const column = heading.closest('.max-w-\\[1440px\\]');
+    expect(column).toHaveClass('mx-auto', 'w-full');
+    expect(column).toContainElement(screen.getByLabelText('Key figures'));
+    expect(column).toContainElement(figure('Cycle time'));
+    // The scatter grows a little on wide screens; the other charts keep their height.
+    const [scatterPlot] = figure('Cycle time').getElementsByClassName('xl:h-[300px]');
+    expect(scatterPlot).toBeDefined();
+    expect(figure('Throughput').getElementsByClassName('xl:h-[300px]')).toHaveLength(0);
+    // The forecast field has a fixed width next to its button (full width below 640 px).
+    const field = within(screen.getByRole('region', { name: 'Forecast' }))
+      .getByLabelText('Cards to finish')
+      .closest('div');
+    expect(field).toHaveClass('w-full', 'sm:w-48');
   });
 
   it('marks Flow as the current view in the top bar', async () => {
@@ -266,9 +307,9 @@ describe('cycle time chart', () => {
     expect(svg).toHaveAccessibleName(
       'Cycle time of 6 cards completed 19 Oct – 17 Nov: p50 4.1 days, p85 8.3 days, p95 11.6 days.',
     );
-    for (const label of ['p50 · 4.1 d', 'p85 · 8.3 d', 'p95 · 11.6 d']) {
-      expect(within(chart).getByText(label)).toBeInTheDocument();
-    }
+    // The lines are named in a legend above the plot, never inside it (no overlaps).
+    expect(legendLabels(chart)).toEqual(['p50 · 4.1 d', 'p85 · 8.3 d', 'p95 · 11.6 d']);
+    expect(svgTexts(chart).filter((text) => /^p\d/.test(text))).toEqual([]);
     expect(within(chart).getAllByTestId('cycle-time-point')).toHaveLength(6);
     expect(
       within(chart).getByText('1 completed card without cycle time is not shown'),
@@ -293,12 +334,61 @@ describe('cycle time chart', () => {
     await analyticsShown();
 
     const chart = figure('Cycle time');
-    expect(within(chart).getByText('p50 · 4.1 d')).toBeInTheDocument();
+    expect(legendLabels(chart)).toEqual(['p50 · 4.1 d']);
     expect(within(chart).queryByText(/^p85/)).toBeNull();
     expect(within(chart).queryByText(/^p95/)).toBeNull();
     expect(
       within(chart).getByText('Percentiles need at least 5 completed cards (3 so far).'),
     ).toBeInTheDocument();
+  });
+
+  it('colours the legend: p50 label in the subtle text colour, its line in the Done colour', async () => {
+    const tokens = document.createElement('style');
+    tokens.textContent =
+      ':root { --cat-done: #1f8a56; --text-subtle: #55585f; --warning-text: #8a5300; --destructive: #b42318; }';
+    document.head.append(tokens);
+    try {
+      await renderFlow();
+      await analyticsShown();
+
+      const items = within(figure('Cycle time'))
+        .getByRole('list', { name: 'Reference lines' })
+        .querySelectorAll('li');
+      const [p50, p85, p95] = [...items];
+      expect(p50).toHaveStyle({ color: '#55585f' });
+      expect(p50?.querySelector('line')).toHaveAttribute('stroke', '#1f8a56');
+      expect(p50?.querySelector('line')).toHaveAttribute('stroke-dasharray', '4 3');
+      expect(p85).toHaveStyle({ color: '#8a5300' });
+      expect(p95).toHaveStyle({ color: '#b42318' });
+    } finally {
+      tokens.remove();
+    }
+  });
+
+  it('puts the completions on a time axis of the range with a tick every Monday', async () => {
+    await renderFlow();
+    await analyticsShown();
+
+    // The range runs from Mon 19 Oct to Tue 17 Nov (UTC).
+    expect(xTicks(figure('Cycle time'))).toEqual(['19 Oct', '26 Oct', '2 Nov', '9 Nov', '16 Nov']);
+  });
+
+  it('shows fewer ticks on a narrow screen', async () => {
+    setMediaQuery('(max-width: 639px)', true);
+    const days = Array.from({ length: 14 }, (_, index) => addDays('2026-11-04', index));
+    const data = analyticsWith();
+    data.range = { ...data.range, from: '2026-11-04' };
+    data.throughput.daily = days.map((date) => ({ date, count: 1 }));
+    data.cumulativeFlow = data.cumulativeFlow.slice(-14);
+    data.leadCycle.points = SCATTER_POINTS.filter((point) => point.completedAt >= '2026-11-04');
+    await renderFlow(FLOW, { analytics: [ok(data)] });
+    await analyticsShown();
+
+    // 14 days get daily ticks, thinned to at most 5 on a narrow screen: every third day.
+    const expected = ['4 Nov', '7 Nov', '10 Nov', '13 Nov', '16 Nov'];
+    expect(xTicks(figure('Cycle time'))).toEqual(expected);
+    expect(xTicks(figure('Throughput'))).toEqual(expected);
+    expect(xTicks(figure('Cumulative flow'))).toEqual(expected);
   });
 
   it('lists the cards in a data table whose keys open the card over the page', async () => {
@@ -374,7 +464,10 @@ describe('throughput chart', () => {
     const week = within(chart).getByRole('button', { name: 'Week' });
     expect(day).toHaveAttribute('aria-pressed', 'true');
     expect(week).toHaveAttribute('aria-pressed', 'false');
-    expect(within(chart).getByText('avg 0.2 / day', { selector: 'p' })).toBeInTheDocument();
+    // The average is named above the plot; only its dashed line is drawn over the bars.
+    expect(legendLabels(chart)).toEqual(['avg 0.2 / day']);
+    expect(svgTexts(chart).filter((text) => text.startsWith('avg'))).toEqual([]);
+    expect(xTicks(chart)).toEqual(['19 Oct', '26 Oct', '2 Nov', '9 Nov', '16 Nov']);
 
     let table = showData('Throughput');
     expect(within(table).getAllByRole('row')).toHaveLength(31);
@@ -383,7 +476,8 @@ describe('throughput chart', () => {
 
     expect(week).toHaveAttribute('aria-pressed', 'true');
     expect(day).toHaveAttribute('aria-pressed', 'false');
-    expect(within(chart).getByText('avg 1.6 / week', { selector: 'p' })).toBeInTheDocument();
+    expect(legendLabels(chart)).toEqual(['avg 1.6 / week']);
+    expect(xTicks(chart)).toEqual(['19 Oct', '26 Oct', '2 Nov', '9 Nov', '16 Nov']);
     table = within(chart).getByRole('table');
     const rows = within(table).getAllByRole('row');
     expect(rows).toHaveLength(6);

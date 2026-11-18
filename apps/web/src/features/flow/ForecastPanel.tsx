@@ -141,7 +141,7 @@ export function ForecastPanel({ boardId, timeZone }: ForecastPanelProps) {
         className="flex flex-col self-stretch sm:inline-flex sm:flex-row sm:self-start"
       />
       <form noValidate onSubmit={submit} className="flex flex-wrap items-end gap-3">
-        <div className="flex min-w-0 flex-1 basis-44 flex-col gap-1.5">
+        <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-48">
           <Label htmlFor={inputId} className="font-mono text-xs font-normal text-muted">
             {mode === 'count' ? 'Cards to finish' : 'Target date'}
           </Label>

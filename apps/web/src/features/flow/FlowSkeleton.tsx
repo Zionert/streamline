@@ -1,6 +1,12 @@
 import { Skeleton } from '@/components/ui/skeleton';
 
 /**
+ * Content column of the Flow page: centred, at most 1440 px wide on large screens; the sections
+ * inside keep their own side paddings (24 px, 16 px below 640 px).
+ */
+export const FLOW_CONTENT_CLASS = 'mx-auto flex w-full max-w-[1440px] flex-col';
+
+/**
  * Placeholders of the key figures and the chart cards while the analytics load. Kept apart from
  * the charts, so the main bundle can show it while the Flow page itself is being loaded.
  */
@@ -30,12 +36,14 @@ export function FlowBodySkeleton() {
 export function FlowSkeleton() {
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-      <div className="flex items-center gap-2 px-4 py-4 sm:px-6">
-        <Skeleton className="h-7 w-24" />
-        <Skeleton className="h-5 w-10" />
-        <Skeleton className="ml-auto h-8 w-32" />
+      <div className={FLOW_CONTENT_CLASS}>
+        <div className="flex items-center gap-2 px-4 py-4 sm:px-6">
+          <Skeleton className="h-7 w-24" />
+          <Skeleton className="h-5 w-10" />
+          <Skeleton className="ml-auto h-8 w-32" />
+        </div>
+        <FlowBodySkeleton />
       </div>
-      <FlowBodySkeleton />
     </main>
   );
 }
