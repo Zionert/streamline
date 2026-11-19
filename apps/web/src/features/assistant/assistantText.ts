@@ -1,20 +1,5 @@
 import { AI_BOARD_TOOL_NAMES, AI_ERROR_CODES, type AiMessage } from '@streamline/shared';
 
-/** Questions offered in the empty board conversation (clicking one sends it). */
-export const BOARD_SUGGESTIONS: readonly string[] = [
-  'Which cards are at risk right now?',
-  'Summarize the board: in progress, stuck, overloaded.',
-  'When will the remaining cards be done?',
-  'What is our cycle time and throughput?',
-  'What should we focus on this week?',
-];
-
-/** Prompts offered in an empty "New project with assistant" session. */
-export const PROJECT_SUGGESTIONS: readonly string[] = [
-  'Plan a webshop launch for 4 people in 6 weeks.',
-  'Which roles do I need for a mobile app MVP?',
-];
-
 export const LIMIT_REACHED_MESSAGE =
   "You've reached today's assistant limit. It resets at midnight UTC.";
 export const TURN_IN_PROGRESS_MESSAGE = 'The assistant is still answering in another tab.';

@@ -76,22 +76,12 @@ describe('assistant panel: layout and state', () => {
     expect(screen.getByRole('region', { name: 'Backlog' })).toBeInTheDocument();
   });
 
-  it('lists the suggested questions of the empty conversation', async () => {
+  it('shows only the title in the empty conversation, without suggested questions', async () => {
     await setup();
     const panel = await openPanel();
 
-    const suggestions = await within(panel).findByRole('list', { name: 'Suggested questions' });
-    expect(
-      within(suggestions)
-        .getAllByRole('button')
-        .map((button) => button.textContent),
-    ).toEqual([
-      'Which cards are at risk right now?',
-      'Summarize the board: in progress, stuck, overloaded.',
-      'When will the remaining cards be done?',
-      'What is our cycle time and throughput?',
-      'What should we focus on this week?',
-    ]);
+    expect(await within(panel).findByText('Ask about this board')).toBeInTheDocument();
+    expect(within(panel).queryByRole('list', { name: 'Suggested questions' })).toBeNull();
   });
 
   it('closes with Escape and gives the focus back to the Assistant button', async () => {
@@ -303,21 +293,6 @@ describe('assistant panel: a streamed turn', () => {
     expect(within(log).getByText('Read flow metrics')).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Send' })).toBeInTheDocument();
     expect(live).toHaveTextContent('SB-1 is at risk (saved).');
-  });
-
-  it('sends a suggested question when it is clicked', async () => {
-    const { fetch } = await setup();
-    fetch.respond(() =>
-      sseResponse([doneEvent('What should we focus on this week?', 'Focus on SB-2.')]),
-    );
-    const panel = await openPanel();
-
-    fireEvent.click(
-      await within(panel).findByRole('button', { name: 'What should we focus on this week?' }),
-    );
-
-    expect(await within(panel).findByRole('link', { name: 'SB-2' })).toBeInTheDocument();
-    expect(fetch.calls[0]?.body).toEqual({ content: 'What should we focus on this week?' });
   });
 
   it('keeps Shift+Enter as a new line and does not send blank questions', async () => {

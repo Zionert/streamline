@@ -177,15 +177,8 @@ describe('New project with assistant', () => {
     expect(dialog).toHaveTextContent(
       'Describe the project, the team and the deadline. Creating the board comes in a later version.',
     );
-    const suggestions = await within(dialog).findByRole('list', { name: 'Suggested questions' });
-    expect(
-      within(suggestions)
-        .getAllByRole('button')
-        .map((button) => button.textContent),
-    ).toEqual([
-      'Plan a webshop launch for 4 people in 6 weeks.',
-      'Which roles do I need for a mobile app MVP?',
-    ]);
+    expect(await within(dialog).findByText('Describe your project')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('list', { name: 'Suggested questions' })).toBeNull();
     expect(mock.current.requestsTo('POST', '/ai/project-sessions')).toHaveLength(1);
     expect(mock.current.requestsTo('POST', '/ai/project-sessions')[0]?.data).toEqual({});
     await waitFor(() => expect(messageInput(dialog)).toHaveFocus());
@@ -214,7 +207,7 @@ describe('New project with assistant', () => {
     // A new open is a new session.
     fireEvent.click(screen.getByRole('button', { name: PROJECT_BUTTON }));
     const second = await screen.findByRole('dialog', { name: 'New project with assistant' });
-    await within(second).findByRole('list', { name: 'Suggested questions' });
+    await within(second).findByText('Describe your project');
     expect(mock.current.requestsTo('POST', '/ai/project-sessions')).toHaveLength(2);
     expect(within(second).queryByText('You need 4 people.')).toBeNull();
 
@@ -243,7 +236,7 @@ describe('New project with assistant', () => {
       { name: 'New project with assistant' },
       { timeout: 5000 },
     );
-    await within(dialog).findByRole('list', { name: 'Suggested questions' });
+    await within(dialog).findByText('Describe your project');
 
     expect(mock.current.requestsTo('POST', '/ai/project-sessions')).toHaveLength(1);
   });

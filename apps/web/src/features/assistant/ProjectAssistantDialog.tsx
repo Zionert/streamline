@@ -19,13 +19,11 @@ import {
 } from '@/components/ui/dialog';
 
 import { AssistantChat } from './AssistantChat';
-import { PROJECT_SUGGESTIONS } from './assistantText';
 import { useAssistantChat } from './useAssistantChat';
 
 const EMPTY_STATE = {
   title: 'Describe your project',
   description: 'The assistant helps you think through the scope, the roles and the timeline.',
-  suggestions: PROJECT_SUGGESTIONS,
 };
 
 export interface ProjectAssistantDialogProps {

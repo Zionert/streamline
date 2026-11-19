@@ -8,13 +8,11 @@ import { ConfirmDialog } from '@/features/boards/ConfirmDialog';
 import { useAssistantPanelStore } from '@/stores/assistantPanel';
 
 import { AssistantChat } from './AssistantChat';
-import { BOARD_SUGGESTIONS } from './assistantText';
 import { ASSISTANT_PANEL_CLASS } from './panelLayout';
 import { useAssistantChat } from './useAssistantChat';
 
 const EMPTY_STATE = {
   title: 'Ask about this board',
-  suggestions: BOARD_SUGGESTIONS,
 };
 
 export interface AssistantPanelProps {

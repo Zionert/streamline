@@ -38,7 +38,6 @@ export interface ChatEmptyState {
   title: string;
   /** Optional line under the title. */
   description?: string;
-  suggestions: readonly string[];
 }
 
 interface AssistantChatProps {
@@ -112,11 +111,6 @@ export function AssistantChat({
     chat.loadEarlier();
   };
 
-  const sendSuggestion = (question: string) => {
-    stickRef.current = true;
-    chat.send(question);
-  };
-
   const isEmpty =
     state.load === 'ready' &&
     entries.length === 0 &&
@@ -166,7 +160,7 @@ export function AssistantChat({
                 {state.isLoadingEarlier ? 'Loading…' : 'Load earlier messages'}
               </Button>
             )}
-            {isEmpty && <EmptyConversation emptyState={emptyState} onSuggestion={sendSuggestion} />}
+            {isEmpty && <EmptyConversation emptyState={emptyState} />}
             {entries.map((entry) => (
               <ChatEntryView key={entryKey(entry)} entry={entry} board={board} />
             ))}
@@ -236,13 +230,7 @@ function HistorySkeleton() {
   );
 }
 
-function EmptyConversation({
-  emptyState,
-  onSuggestion,
-}: {
-  emptyState: ChatEmptyState;
-  onSuggestion: (question: string) => void;
-}) {
+function EmptyConversation({ emptyState }: { emptyState: ChatEmptyState }) {
   return (
     <div className="my-auto flex flex-col items-center gap-3 py-6 text-center">
       <Sparkles aria-hidden="true" className="size-6 text-muted" strokeWidth={2} />
@@ -250,19 +238,6 @@ function EmptyConversation({
       {emptyState.description && (
         <p className="max-w-80 text-sm text-subtle">{emptyState.description}</p>
       )}
-      <ul aria-label="Suggested questions" className="mt-2 flex w-full flex-col gap-2">
-        {emptyState.suggestions.map((suggestion) => (
-          <li key={suggestion}>
-            <Button
-              variant="subtle"
-              className="h-auto w-full justify-start py-2 text-left whitespace-normal"
-              onClick={() => onSuggestion(suggestion)}
-            >
-              {suggestion}
-            </Button>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
