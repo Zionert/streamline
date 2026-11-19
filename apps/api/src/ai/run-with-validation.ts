@@ -36,6 +36,7 @@ export async function collectResponse(
           id: event.id,
           name: event.name,
           argumentsJson: event.argumentsJson,
+          ...(event.extraContent && { extraContent: event.extraContent }),
         });
         break;
       case 'usage':
@@ -49,7 +50,8 @@ export async function collectResponse(
   return response;
 }
 
-function addUsage(total: LlmUsage | null, usage: LlmUsage | null): LlmUsage | null {
+/** Sum of two usages; `null` (unknown) counts as nothing, and two unknowns stay unknown. */
+export function addUsage(total: LlmUsage | null, usage: LlmUsage | null): LlmUsage | null {
   if (!usage) return total;
   return {
     promptTokens: (total?.promptTokens ?? 0) + usage.promptTokens,
@@ -100,7 +102,8 @@ export interface ValidatedOutput<T> {
   usage: LlmUsage | null;
 }
 
-type ValidationResult<T> = { ok: true; value: T } | { ok: false; issues: AiValidationIssue[] };
+export type ValidationResult<T> =
+  { ok: true; value: T } | { ok: false; issues: AiValidationIssue[] };
 
 const MAX_FEEDBACK_ISSUES = 10;
 const MAX_ISSUE_MESSAGE_LENGTH = 200;
@@ -114,7 +117,11 @@ function formatPath(path: readonly PropertyKey[]): string {
   return result;
 }
 
-function validate<T>(schema: z.ZodType<T>, candidate: ValidationCandidate): ValidationResult<T> {
+/** Parses the candidate's JSON and checks it against the schema (or reports the missing output). */
+export function validateCandidate<T>(
+  schema: z.ZodType<T>,
+  candidate: ValidationCandidate,
+): ValidationResult<T> {
   if ('missing' in candidate) {
     return {
       ok: false,
@@ -169,7 +176,7 @@ export function formatValidationFeedback(issues: AiValidationIssue[], toolName?:
  * parse them on input and reject the request when they are not a JSON object; the broken text
  * itself is already quoted in the feedback.
  */
-function echoedArguments(argumentsJson: string): string {
+export function echoedArguments(argumentsJson: string): string {
   try {
     const parsed: unknown = JSON.parse(argumentsJson);
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
@@ -233,7 +240,7 @@ export async function runWithValidation<T>(
 
   const first = await collectResponse(provider.streamChat(request), (event) => onEvent?.(event, 1));
   const firstCandidate = extract(first);
-  const firstResult = validate(schema, firstCandidate);
+  const firstResult = validateCandidate(schema, firstCandidate);
   if (firstResult.ok) {
     return { value: firstResult.value, attempts: 1, response: first, usage: first.usage };
   }
@@ -253,7 +260,7 @@ export async function runWithValidation<T>(
     throw err;
   }
   const usage = addUsage(first.usage, second.usage);
-  const secondResult = validate(schema, extract(second));
+  const secondResult = validateCandidate(schema, extract(second));
   if (secondResult.ok) {
     return { value: secondResult.value, attempts: 2, response: second, usage };
   }

@@ -67,7 +67,7 @@ export function toAiConversation(conversation: AiConversationRecord): AiConversa
 }
 
 /** Copies a stored JSON value into the shared JSON type (drops keys holding `undefined`). */
-function toJsonValue(value: Prisma.JsonValue): AiJsonValue {
+export function toJsonValue(value: Prisma.JsonValue): AiJsonValue {
   if (Array.isArray(value)) return value.map(toJsonValue);
   if (value !== null && typeof value === 'object') {
     const result: Record<string, AiJsonValue> = {};
@@ -79,6 +79,16 @@ function toJsonValue(value: Prisma.JsonValue): AiJsonValue {
   return value;
 }
 
+/**
+ * A stored tool result without server-only data: `extraContent` is the provider's opaque data of
+ * the call (e.g. a thought signature), kept only to send the call back to the model.
+ */
+function publicToolResult(value: AiJsonValue): AiJsonValue {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  const { extraContent: _serverOnly, ...rest } = value;
+  return rest;
+}
+
 export function toAiMessage(message: AiMessageRecord): AiMessage {
   return {
     id: message.id,
@@ -88,7 +98,8 @@ export function toAiMessage(message: AiMessageRecord): AiMessage {
     toolName: message.toolName,
     toolCallId: message.toolCallId,
     toolArgs: message.toolArgs === null ? null : toJsonValue(message.toolArgs),
-    toolResult: message.toolResult === null ? null : toJsonValue(message.toolResult),
+    toolResult:
+      message.toolResult === null ? null : publicToolResult(toJsonValue(message.toolResult)),
     createdAt: message.createdAt.toISOString(),
   };
 }

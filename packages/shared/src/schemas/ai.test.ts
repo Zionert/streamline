@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AI_CHAT_EVENT_NAMES,
   AI_MESSAGES_PAGE_DEFAULT_LIMIT,
+  AI_USER_MESSAGE_MAX_LENGTH,
   AI_MESSAGES_PAGE_MAX_LIMIT,
   aiBoardConversationResponseSchema,
   aiMessageListQuerySchema,
   aiMessageSchema,
   aiStatusResponseSchema,
   createAiProjectSessionSchema,
+  parseAiChatEvent,
+  sendAiMessageSchema,
 } from './ai.js';
 
 const TIMESTAMP = '2026-11-18T10:00:00.000Z';
@@ -102,5 +106,65 @@ describe('createAiProjectSessionSchema', () => {
   it('accepts an empty body and rejects unknown fields', () => {
     expect(createAiProjectSessionSchema.parse({})).toEqual({});
     expect(createAiProjectSessionSchema.safeParse({ title: 'Shop' }).success).toBe(false);
+  });
+});
+
+describe('sendAiMessageSchema', () => {
+  it('trims the message and accepts up to the maximum length', () => {
+    expect(sendAiMessageSchema.parse({ content: '  Hi  ' })).toEqual({ content: 'Hi' });
+    const longest = 'x'.repeat(AI_USER_MESSAGE_MAX_LENGTH);
+    expect(sendAiMessageSchema.parse({ content: ` ${longest} ` }).content).toBe(longest);
+  });
+
+  it.each([
+    {},
+    { content: '' },
+    { content: '   ' },
+    { content: 'x'.repeat(AI_USER_MESSAGE_MAX_LENGTH + 1) },
+    { content: 42 },
+    { content: 'Hi', boardId: 'board-1' },
+  ])('rejects %o', (body) => {
+    expect(sendAiMessageSchema.safeParse(body).success).toBe(false);
+  });
+});
+
+describe('parseAiChatEvent', () => {
+  it('parses every event of a chat turn', () => {
+    expect(parseAiChatEvent('delta', { text: 'Hel' })).toEqual({
+      event: 'delta',
+      data: { text: 'Hel' },
+    });
+    expect(parseAiChatEvent('tool', { id: 'c1', name: 'get_card', status: 'started' })).toEqual({
+      event: 'tool',
+      data: { id: 'c1', name: 'get_card', status: 'started' },
+    });
+    expect(
+      parseAiChatEvent('tool', { id: 'c1', name: 'get_card', status: 'finished', ok: false }),
+    ).toMatchObject({ data: { ok: false } });
+    expect(
+      parseAiChatEvent('done', {
+        messages: [validMessage],
+        usage: { promptTokens: 10, completionTokens: 2 },
+      }),
+    ).toMatchObject({ event: 'done', data: { messages: [validMessage] } });
+    expect(parseAiChatEvent('error', { code: 'AI_PROVIDER_BUSY', message: 'Busy' })).toEqual({
+      event: 'error',
+      data: { code: 'AI_PROVIDER_BUSY', message: 'Busy' },
+    });
+  });
+
+  it.each([
+    ['unknown', { text: 'x' }],
+    ['toString', {}],
+    ['delta', { text: 1 }],
+    ['tool', { id: 'c1', name: 'get_card', status: 'running' }],
+    ['done', { messages: [], usage: { promptTokens: -1, completionTokens: 0 } }],
+    ['error', { code: 'X' }],
+  ])('rejects the event %s with %o', (name, data) => {
+    expect(parseAiChatEvent(name, data)).toBeNull();
+  });
+
+  it('lists the event names', () => {
+    expect(AI_CHAT_EVENT_NAMES).toEqual(['delta', 'tool', 'done', 'error']);
   });
 });

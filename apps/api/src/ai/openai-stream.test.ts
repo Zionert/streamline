@@ -53,6 +53,47 @@ describe('OpenAIStreamAssembler', () => {
     expect(diagnostics).toEqual([{ type: 'reasoning-delta' }, { type: 'reasoning-delta' }]);
   });
 
+  it('keeps extra_content of a tool call, merged across fragments, and ignores non-objects', () => {
+    const events = run(
+      new OpenAIStreamAssembler(),
+      chunk({
+        tool_calls: [
+          {
+            index: 0,
+            id: 'c1',
+            function: { name: 'get_card', arguments: '' },
+            extra_content: { google: { thought_signature: 'sig' } },
+          },
+          {
+            index: 1,
+            id: 'c2',
+            function: { name: 'search_cards' },
+            extra_content: 'not an object',
+          },
+        ],
+      }),
+      chunk({
+        tool_calls: [
+          { index: 0, function: { arguments: '{"key":"RO-1"}' }, extra_content: { other: 1 } },
+          { index: 1, extra_content: ['x'] },
+        ],
+      }),
+      chunk({}, 'tool_calls'),
+    );
+
+    expect(events).toEqual([
+      {
+        type: 'tool-call',
+        id: 'c1',
+        name: 'get_card',
+        argumentsJson: '{"key":"RO-1"}',
+        extraContent: { google: { thought_signature: 'sig' }, other: 1 },
+      },
+      { type: 'tool-call', id: 'c2', name: 'search_cards', argumentsJson: '{}' },
+      { type: 'done', finishReason: 'tool_calls' },
+    ]);
+  });
+
   it('ignores choices other than the first', () => {
     expect(run(new OpenAIStreamAssembler(), chunk({ content: 'other' }, null, 1))).toEqual([
       { type: 'done', finishReason: 'other' },

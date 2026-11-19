@@ -1,0 +1,7 @@
+: Gemini OpenAI-compatible endpoint (v1beta/openai) answering with two tool calls in one step: the
+: first call carries the opaque thought signature in extra_content.google.thought_signature, in the
+: same chunk as its id and name (the signature value is shortened here).
+
+data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"extra_content":{"google":{"thought_signature":"CsgBAdHtim9Q2xE7yQ0bVfL3kRj8uT1wZp=="}},"function":{"arguments":"{}","name":"get_board_overview"},"id":"function-call-12731964598421563478","index":0,"type":"function"},{"function":{"arguments":"{\"limit\":50}","name":"search_cards"},"id":"function-call-12731964598421563479","index":1,"type":"function"}]},"finish_reason":"tool_calls","index":0}],"created":1795030300,"id":"bDQaacX8MvLcz8JQr6Df5BR","model":"gemini-3.5-flash-lite","object":"chat.completion.chunk","usage":{"completion_tokens":21,"prompt_tokens":2310,"total_tokens":2331}}
+
+data: [DONE]

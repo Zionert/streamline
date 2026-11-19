@@ -10,6 +10,8 @@ import type { LlmEvent, LlmFinishReason, LlmToolCall, LlmUsage } from './llm-pro
 const toolCallDeltaSchema = z.object({
   index: z.number().int().nonnegative().nullish(),
   id: z.string().nullish(),
+  // Opaque provider data (Gemini: `{ google: { thought_signature } }`); kept only if an object.
+  extra_content: z.unknown().optional(),
   function: z
     .object({
       name: z.string().nullish(),
@@ -59,8 +61,11 @@ interface ToolCallSlot {
   id: string;
   name: string;
   argumentsJson: string;
+  extraContent: Record<string, unknown> | undefined;
   emitted: boolean;
 }
+
+const extraContentSchema = z.record(z.string(), z.unknown());
 
 const MAX_PROVIDER_TEXT_LENGTH = 300;
 
@@ -231,6 +236,10 @@ export class OpenAIStreamAssembler {
   private addToolCallDelta(delta: ToolCallDelta, position: number): void {
     const slot = this.findSlot(delta, position);
     if (delta.id) slot.id = delta.id;
+    const extra = extraContentSchema.safeParse(delta.extra_content);
+    // Assumes the provider sends `extra_content` whole in one fragment (Gemini does); a later
+    // fragment only adds or replaces top-level keys.
+    if (extra.success) slot.extraContent = { ...slot.extraContent, ...extra.data };
     const fn = delta.function;
     if (fn?.name) slot.name += fn.name;
     if (typeof fn?.arguments === 'string') slot.argumentsJson += fn.arguments;
@@ -251,7 +260,14 @@ export class OpenAIStreamAssembler {
     // every call 0).
     if (slot && delta.id && slot.id && slot.id !== delta.id) slot = undefined;
     if (!slot) {
-      slot = { index, id: '', name: '', argumentsJson: '', emitted: false };
+      slot = {
+        index,
+        id: '',
+        name: '',
+        argumentsJson: '',
+        extraContent: undefined,
+        emitted: false,
+      };
       this.toolCalls.push(slot);
     }
     return slot;
@@ -269,6 +285,7 @@ export class OpenAIStreamAssembler {
         id: slot.id || `call_${String(position)}`,
         name: slot.name,
         argumentsJson: slot.argumentsJson.trim() === '' ? '{}' : slot.argumentsJson,
+        ...(slot.extraContent && { extraContent: slot.extraContent }),
       };
       events.push({ type: 'tool-call', ...toolCall });
     });

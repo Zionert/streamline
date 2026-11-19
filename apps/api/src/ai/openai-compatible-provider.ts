@@ -45,6 +45,7 @@ interface WireToolCall {
   id: string;
   type: 'function';
   function: { name: string; arguments: string };
+  extra_content?: Record<string, unknown>;
 }
 
 type WireMessage =
@@ -68,6 +69,8 @@ function toWireMessage(message: LlmMessage): WireMessage {
           id: call.id,
           type: 'function' as const,
           function: { name: call.name, arguments: call.argumentsJson },
+          // Sent back only when the provider attached it (e.g. Gemini thought signatures).
+          ...(call.extraContent && { extra_content: call.extraContent }),
         })),
       };
     }
@@ -152,7 +155,10 @@ export class OpenAICompatibleProvider implements LlmProvider {
       stream_options: { include_usage: true },
       ...(request.temperature !== undefined && { temperature: request.temperature }),
       ...(reasoningEffort !== 'default' && { reasoning_effort: reasoningEffort }),
-      ...(tools.length > 0 && { tools: tools.map(toWireTool), tool_choice: 'auto' }),
+      ...(tools.length > 0 && {
+        tools: tools.map(toWireTool),
+        tool_choice: request.toolChoice ?? 'auto',
+      }),
     });
   }
 

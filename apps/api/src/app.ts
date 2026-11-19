@@ -14,6 +14,7 @@ import { createRequireAuth } from './middleware/require-auth.js';
 import { createRequireBoardPermission } from './middleware/require-board-permission.js';
 import { noopBoardEvents, type BoardEvents } from './realtime/board-events.js';
 import { createAiConversationRepository } from './repositories/ai-conversation.repository.js';
+import { createAiUsageRepository } from './repositories/ai-usage.repository.js';
 import { createActivityRepository } from './repositories/activity.repository.js';
 import { createAnalyticsRepository } from './repositories/analytics.repository.js';
 import { createBoardMemberRepository } from './repositories/board-member.repository.js';
@@ -27,7 +28,9 @@ import { createRefreshTokenRepository } from './repositories/refresh-token.repos
 import { createUserRepository } from './repositories/user.repository.js';
 import { createRouter } from './routes/index.js';
 import { createActivityService } from './services/activity.service.js';
+import { createAiChatService } from './services/ai-chat.service.js';
 import { createAiConversationService } from './services/ai-conversation.service.js';
+import { createBoardTools } from './services/ai-tools/board-tools.js';
 import { createAnalyticsService } from './services/analytics.service.js';
 import { createAuthService } from './services/auth.service.js';
 import { createBoardAccessService } from './services/board-access.service.js';
@@ -64,6 +67,7 @@ export function createApp({
   config,
   logger,
   db,
+  llm = null,
   events = noopBoardEvents,
   now = () => new Date(),
   random = Math.random,
@@ -97,10 +101,36 @@ export function createApp({
     now,
     random,
   });
+  const aiConversations = createAiConversationRepository(db);
   const aiConversationService = createAiConversationService({
-    conversations: createAiConversationRepository(db),
+    conversations: aiConversations,
     boardAccess,
   });
+  const aiChatService =
+    config.AI_ENABLED && llm
+      ? createAiChatService({
+          llm,
+          conversations: aiConversations,
+          usage: createAiUsageRepository(db),
+          boardAccess,
+          boardService,
+          tools: createBoardTools({
+            boardService,
+            columnService,
+            cardService,
+            labelService,
+            commentService,
+            analyticsService,
+          }),
+          logger,
+          now,
+          limits: {
+            requests: config.AI_DAILY_REQUEST_LIMIT,
+            tokens: config.AI_DAILY_TOKEN_LIMIT,
+          },
+          contextTokens: config.LLM_CONTEXT_TOKENS,
+        })
+      : null;
 
   const app = express();
 
@@ -121,6 +151,7 @@ export function createApp({
       activityService,
       analyticsService,
       aiConversationService,
+      aiChatService,
       aiStatus: {
         enabled: config.AI_ENABLED,
         model: config.AI_ENABLED ? (config.LLM_MODEL ?? null) : null,
