@@ -323,6 +323,22 @@ describe('BoardColumn', () => {
     expect(handle).toHaveFocus();
   });
 
+  it('places the drag handle inside the header, after the name and before "+"', () => {
+    renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a' }), 0, {
+      canWrite: true,
+      canWriteCards: true,
+      dragHandleProps,
+    });
+
+    const heading = screen.getByRole('heading', { name: 'Review' });
+    const handle = screen.getByRole('button', { name: 'Drag column Review' });
+    const addCard = screen.getByRole('button', { name: 'Add a card to Review' });
+    // Not positioned outside the column, where it met the previous column's menu.
+    expect(handle).not.toHaveClass('absolute');
+    expect(heading.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(handle.compareDocumentPosition(addCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('lets the board open the composer through the composer handle', () => {
     const handle: { current: ColumnComposerHandle | null } = { current: null };
     renderColumn(columnWith({ id: 'col-a', title: 'Review', rank: 'a' }), 1, {

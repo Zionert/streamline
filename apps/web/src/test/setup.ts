@@ -4,7 +4,10 @@ import { createElement, type ComponentProps } from 'react';
 import type * as Recharts from 'recharts';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { resetAssistantLimit } from '@/features/assistant/assistantLimit';
 import { setActiveSocket, setSocketFactory } from '@/lib/socket';
+import { resetAiStatusStore } from '@/stores/aiStatus';
+import { resetAssistantPanelStore } from '@/stores/assistantPanel';
 import { resetThemeStore } from '@/stores/theme';
 
 import { FakeSocket } from './fakeSocket';
@@ -60,4 +63,7 @@ afterEach(() => {
   window.localStorage.clear();
   document.documentElement.classList.remove('dark');
   resetThemeStore();
+  resetAiStatusStore();
+  resetAssistantPanelStore();
+  resetAssistantLimit();
 });
