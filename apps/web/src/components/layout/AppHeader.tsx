@@ -1,5 +1,5 @@
 import { LogOut } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type RefObject } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { Avatar } from '@/components/ui/avatar';
@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { AssistantButton } from '@/features/assistant/AssistantEntry';
 import { logout } from '@/features/auth/authApi';
 import { HOME_PATH, LOGIN_PATH } from '@/features/auth/redirect';
 import { BoardHeaderMembers, BoardHeaderNav } from '@/features/boards/BoardHeaderNav';
@@ -21,11 +22,16 @@ import { useAuthStore } from '@/stores/auth';
 import { Logo } from './Logo';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
+interface AppHeaderProps {
+  /** The "Assistant" button, which gets the focus back when the assistant panel closes. */
+  assistantButtonRef: RefObject<HTMLButtonElement | null>;
+}
+
 /**
  * Top bar of the authenticated app: logo, on board pages the board name, view tabs and members,
- * then the theme and the account menu.
+ * then (on board pages, when enabled) the assistant, the theme and the account menu.
  */
-export function AppHeader() {
+export function AppHeader({ assistantButtonRef }: AppHeaderProps) {
   const board = useCurrentBoard();
 
   return (
@@ -44,6 +50,7 @@ export function AppHeader() {
         {board && <BoardHeaderNav key={board.id} board={board} />}
       </div>
       <div className="flex shrink-0 items-center gap-3">
+        <AssistantButton buttonRef={assistantButtonRef} />
         <ThemeSwitcher />
         {board && <BoardHeaderMembers />}
         <UserMenu />

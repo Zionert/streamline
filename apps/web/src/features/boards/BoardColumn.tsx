@@ -168,24 +168,6 @@ export function BoardColumn({
     >
       <div className="flex flex-col gap-1.5">
         <div className="flex min-h-8 items-center gap-1">
-          {dragHandleProps && (
-            // A dedicated handle: its own role="button" must not swallow the heading and counter.
-            // It sits in the gap left of the column, so that the name stays aligned with the cards.
-            // Shown on hover and whenever it has the keyboard focus; never removed from the tab
-            // order (it is only transparent while idle).
-            <span
-              {...dragHandleProps}
-              data-testid="column-drag-handle"
-              aria-label={`Drag column ${column.title}`}
-              title="Drag to reorder"
-              className={cn(
-                'absolute top-0.5 -left-4 flex h-7 w-4 shrink-0 cursor-grab items-center justify-center rounded-sm text-subtle opacity-0 transition-opacity outline-none group-hover/column:opacity-100 hover:bg-surface-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing [@media(hover:none)]:opacity-100',
-                isDragging && 'opacity-100',
-              )}
-            >
-              <GripVertical aria-hidden="true" className="size-4" strokeWidth={2} />
-            </span>
-          )}
           {isEditingTitle ? (
             <div className="min-w-0 flex-1">
               <ColumnTitleEditor
@@ -212,6 +194,25 @@ export function BoardColumn({
                 </span>
               )}
             </div>
+          )}
+          {dragHandleProps && (
+            // A dedicated handle: its own role="button" must not swallow the heading and counter.
+            // It sits inside the header, right of the name, so that the name stays aligned with
+            // the cards and the handle never reaches into the gap next to the previous column.
+            // Shown on hover and whenever it has the keyboard focus; never removed from the tab
+            // order (it is only transparent while idle).
+            <span
+              {...dragHandleProps}
+              data-testid="column-drag-handle"
+              aria-label={`Drag column ${column.title}`}
+              title="Drag to reorder"
+              className={cn(
+                'flex size-7 shrink-0 cursor-grab items-center justify-center rounded-sm text-subtle opacity-0 transition-opacity outline-none group-hover/column:opacity-100 hover:bg-surface-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing [@media(hover:none)]:opacity-100',
+                isDragging && 'opacity-100',
+              )}
+            >
+              <GripVertical aria-hidden="true" className="size-4" strokeWidth={2} />
+            </span>
           )}
           {canWriteCards && (
             <Button

@@ -18,6 +18,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ProjectAssistantButton } from '@/features/assistant/AssistantEntry';
 import { useBoardStore } from '@/stores/board';
 
 import { BoardActionsMenu } from './BoardActionsMenu';
@@ -44,10 +45,13 @@ export function BoardsPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-[22px] font-semibold tracking-[-0.02em]">Your boards</h1>
-          <Button onClick={() => setIsCreating(true)}>
-            <Plus strokeWidth={2} />
-            Create board
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <ProjectAssistantButton />
+            <Button onClick={() => setIsCreating(true)}>
+              <Plus strokeWidth={2} />
+              Create board
+            </Button>
+          </div>
         </div>
         {(status === 'idle' || status === 'loading') && boards.length === 0 && (
           <BoardGridSkeleton />

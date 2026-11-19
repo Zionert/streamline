@@ -68,6 +68,8 @@ const TEXT_PAIRS: readonly [string, string][] = [
   // label in --destructive, the p50 label in --text-subtle and the axis ticks in --text-muted
   // are covered above; p50 is not labelled in --cat-done, below 4.5:1 on the light surface.)
   ['--warning-text', '--surface'],
+  // The error block of the assistant (a failed answer) in the panel.
+  ['--text', '--danger-subtle'],
 ];
 
 /** Graphics that carry meaning (WCAG 1.4.11 non-text contrast): [graphic, background]. */
@@ -97,6 +99,11 @@ const NON_TEXT_PAIRS: readonly [string, string][] = [
   // The boundary of an unchecked checkbox (dialogs and popovers).
   ['--text-muted', '--surface'],
   ['--text-muted', '--surface-raised'],
+  // Assistant panel: the edges of the error and limit blocks, the finished and failed tool steps.
+  ['--danger', '--danger-subtle'],
+  ['--warning-text', '--surface-hover'],
+  ['--cat-done', '--surface-raised'],
+  ['--warning-text', '--surface-raised'],
   // Label dots on a card tile.
   ...LABEL_COLORS.map((color): [string, string] => [
     `--label-${color.toLowerCase()}-dot`,
