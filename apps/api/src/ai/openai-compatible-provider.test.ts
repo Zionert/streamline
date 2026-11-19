@@ -127,6 +127,29 @@ const FIXTURES: { name: string; file: string; expected: LlmEvent[] }[] = [
       { type: 'done', finishReason: 'stop' },
     ],
   },
+  {
+    name: 'Gemini OpenAI-compatible tool calls with a thought signature',
+    file: 'gemini-tool-call-thought-signature.sse',
+    expected: [
+      {
+        type: 'tool-call',
+        id: 'function-call-12731964598421563478',
+        name: 'get_board_overview',
+        argumentsJson: '{}',
+        extraContent: {
+          google: { thought_signature: 'CsgBAdHtim9Q2xE7yQ0bVfL3kRj8uT1wZp==' },
+        },
+      },
+      {
+        type: 'tool-call',
+        id: 'function-call-12731964598421563479',
+        name: 'search_cards',
+        argumentsJson: '{"limit":50}',
+      },
+      { type: 'usage', promptTokens: 2310, completionTokens: 21 },
+      { type: 'done', finishReason: 'tool_calls' },
+    ],
+  },
 ];
 
 describe('OpenAICompatibleProvider: recorded streams', () => {
@@ -317,6 +340,66 @@ describe('OpenAICompatibleProvider: request', () => {
         },
       ],
       tool_choice: 'auto',
+    });
+  });
+
+  it('sends extra_content back only on tool calls that carried it', async () => {
+    const stub = createFetchStub(okResponse);
+    const extraContent = { google: { thought_signature: 'sig-1' } };
+    await collect(
+      createProvider(stub.fetch).streamChat({
+        messages: [
+          { role: 'user', content: 'Summarize' },
+          {
+            role: 'assistant',
+            content: null,
+            toolCalls: [
+              { id: 'a', name: 'get_board_overview', argumentsJson: '{}', extraContent },
+              { id: 'b', name: 'search_cards', argumentsJson: '{}' },
+            ],
+          },
+          { role: 'tool', toolCallId: 'a', content: '{}' },
+          { role: 'tool', toolCallId: 'b', content: '{}' },
+        ],
+      }),
+    );
+
+    expect(stub.calls[0]?.body).toMatchObject({
+      messages: [
+        { role: 'user', content: 'Summarize' },
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: 'a',
+              type: 'function',
+              function: { name: 'get_board_overview', arguments: '{}' },
+              extra_content: extraContent,
+            },
+            { id: 'b', type: 'function', function: { name: 'search_cards', arguments: '{}' } },
+          ],
+        },
+        {},
+        {},
+      ],
+    });
+    const body = stub.calls[0]?.body as { messages: { tool_calls?: object[] }[] };
+    expect(body.messages[1]?.tool_calls?.[1]).not.toHaveProperty('extra_content');
+  });
+
+  it('sends tool_choice "none" when the request asks for an answer without tool calls', async () => {
+    const stub = createFetchStub(okResponse);
+    await collect(
+      createProvider(stub.fetch).streamChat({
+        ...REQUEST,
+        tools: [{ name: 't', description: 'd', parameters: { type: 'object' } }],
+        toolChoice: 'none',
+      }),
+    );
+
+    expect(stub.calls[0]?.body).toMatchObject({
+      tool_choice: 'none',
+      tools: [{ type: 'function' }],
     });
   });
 

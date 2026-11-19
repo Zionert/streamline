@@ -98,6 +98,39 @@ describe('MockLlmProvider', () => {
     await expect(pending).rejects.toMatchObject({ code: 'LLM_ABORTED' });
   });
 
+  it('scripts several tool calls in one response', async () => {
+    const provider = new MockLlmProvider([
+      MockLlmProvider.toolCalls(
+        { name: 'search_cards', args: { query: 'login' } },
+        { name: 'get_card', args: '{bad', id: 'custom' },
+      ),
+    ]);
+
+    expect(await collect(provider.streamChat(request))).toEqual([
+      { type: 'tool-call', id: 'call_1', name: 'search_cards', argumentsJson: '{"query":"login"}' },
+      { type: 'tool-call', id: 'custom', name: 'get_card', argumentsJson: '{bad' },
+      { type: 'done', finishReason: 'tool_calls' },
+    ]);
+  });
+
+  it('adds a reported usage before the done event, or at the end without one', async () => {
+    const usage = { promptTokens: 12, completionTokens: 3 };
+    const provider = new MockLlmProvider([
+      MockLlmProvider.withUsage(MockLlmProvider.text('Hi'), usage),
+      MockLlmProvider.withUsage({ events: [{ type: 'text-delta', text: 'cut' }] }, usage),
+    ]);
+
+    expect(await collect(provider.streamChat(request))).toEqual([
+      { type: 'text-delta', text: 'Hi' },
+      { type: 'usage', ...usage },
+      { type: 'done', finishReason: 'stop' },
+    ]);
+    expect(await collect(provider.streamChat(request))).toEqual([
+      { type: 'text-delta', text: 'cut' },
+      { type: 'usage', ...usage },
+    ]);
+  });
+
   it('fails clearly when no scenario is left', async () => {
     const provider = new MockLlmProvider().enqueue(MockLlmProvider.text('only one'));
     await collect(provider.streamChat(request));

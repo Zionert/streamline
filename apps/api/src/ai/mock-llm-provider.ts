@@ -6,6 +6,7 @@ import type {
   LlmReasoningEffort,
   LlmRequest,
   LlmToolDefinition,
+  LlmUsage,
 } from './llm-provider.js';
 
 /**
@@ -24,6 +25,7 @@ export interface MockLlmRecordedRequest {
   tools: LlmToolDefinition[] | undefined;
   temperature: number | undefined;
   reasoningEffort: LlmReasoningEffort | undefined;
+  toolChoice: LlmRequest['toolChoice'];
   hasSignal: boolean;
 }
 
@@ -81,6 +83,34 @@ export class MockLlmProvider implements LlmProvider {
     };
   }
 
+  /** Several tool calls in one response (ids default to `call_1`, `call_2`, ...). */
+  static toolCalls(
+    ...calls: { name: string; args: unknown; id?: string; extraContent?: Record<string, unknown> }[]
+  ): MockLlmScenario {
+    return {
+      events: [
+        ...calls.map(({ name, args, id, extraContent }, index): LlmEvent => ({
+          type: 'tool-call',
+          id: id ?? `call_${String(index + 1)}`,
+          name,
+          argumentsJson: typeof args === 'string' ? args : JSON.stringify(args),
+          ...(extraContent && { extraContent }),
+        })),
+        { type: 'done', finishReason: 'tool_calls' },
+      ],
+    };
+  }
+
+  /** The scenario with a reported token usage (placed before its `done` event). */
+  static withUsage(scenario: MockLlmScenario, usage: LlmUsage): MockLlmScenario {
+    const events = [...(scenario.events ?? [])];
+    const doneIndex = events.findIndex((event) => event.type === 'done');
+    const usageEvent: LlmEvent = { type: 'usage', ...usage };
+    if (doneIndex === -1) events.push(usageEvent);
+    else events.splice(doneIndex, 0, usageEvent);
+    return { ...scenario, events };
+  }
+
   /** A call failing with the given provider error. */
   static failure(error: Error): MockLlmScenario {
     return { error };
@@ -102,6 +132,7 @@ export class MockLlmProvider implements LlmProvider {
       tools: request.tools && structuredClone(request.tools),
       temperature: request.temperature,
       reasoningEffort: request.reasoningEffort,
+      toolChoice: request.toolChoice,
       hasSignal: request.signal !== undefined,
     });
     const scenario = this.scenarios.shift();

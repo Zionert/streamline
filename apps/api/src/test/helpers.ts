@@ -2,7 +2,7 @@ import type { Express } from 'express';
 import { pino } from 'pino';
 import { inject } from 'vitest';
 
-import { createApp } from '../app.js';
+import { createApp, type CreateAppOptions } from '../app.js';
 import { loadConfig, type AppConfig } from '../config/env.js';
 import { createDbClient, type DbClient } from '../repositories/db.js';
 
@@ -26,8 +26,20 @@ export function createTestDb(): DbClient {
   return createDbClient(inject('testDatabaseUrl'));
 }
 
-export function buildTestApp(db: DbClient, overrides: Partial<NodeJS.ProcessEnv> = {}): Express {
-  return createApp({ config: createTestConfig(overrides), logger: pino({ level: 'silent' }), db });
+/** Optional dependencies of a test app (e.g. a `MockLlmProvider` or a capturing logger). */
+export type TestAppDependencies = Partial<Pick<CreateAppOptions, 'llm' | 'logger' | 'now'>>;
+
+export function buildTestApp(
+  db: DbClient,
+  overrides: Partial<NodeJS.ProcessEnv> = {},
+  deps: TestAppDependencies = {},
+): Express {
+  return createApp({
+    config: createTestConfig(overrides),
+    logger: pino({ level: 'silent' }),
+    db,
+    ...deps,
+  });
 }
 
 /** Removes all rows from application tables (the migrations table is kept). */

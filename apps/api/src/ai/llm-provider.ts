@@ -8,6 +8,12 @@ export interface LlmToolCall {
   id: string;
   name: string;
   argumentsJson: string;
+  /**
+   * Opaque provider data attached to the call (OpenAI-compatible `extra_content`, e.g. Gemini's
+   * `google.thought_signature`). It must be sent back unchanged with the call in later requests;
+   * absent for providers that do not send it.
+   */
+  extraContent?: Record<string, unknown>;
 }
 
 export type LlmMessage =
@@ -48,6 +54,11 @@ export interface LlmRequest {
   temperature?: number;
   /** Overrides the configured reasoning effort for this call (`default` omits the field). */
   reasoningEffort?: LlmReasoningEffort;
+  /**
+   * Whether the model may call the given tools (`auto`, the default) or must answer with text
+   * (`none`, e.g. after the last allowed tool round, while the tools stay defined).
+   */
+  toolChoice?: 'auto' | 'none';
 }
 
 export type LlmFinishReason = 'stop' | 'tool_calls' | 'length' | 'other';
