@@ -403,14 +403,13 @@ function ChatInput({ chat, placeholder, inputRef, disabled, canSend, onSend }: C
           )}
         </Button>
       </div>
-      <div className="flex items-center justify-between gap-2 font-mono text-[11px] text-muted">
-        <span>Answers can be inaccurate.</span>
-        {showCounter && (
+      {showCounter && (
+        <div className="flex justify-end font-mono text-[11px] text-muted">
           <span id={counterId} className={cn(isTooLong && 'text-destructive')}>
             {draft.length} / {AI_USER_MESSAGE_MAX_LENGTH}
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </form>
   );
 }

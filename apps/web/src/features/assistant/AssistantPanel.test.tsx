@@ -69,7 +69,7 @@ describe('assistant panel: layout and state', () => {
     expect(await within(panel).findByText('Ask about this board')).toBeInTheDocument();
     expect(messageInput(panel)).toHaveFocus();
     expect(messageInput(panel)).toHaveAttribute('placeholder', 'Ask about this board…');
-    expect(within(panel).getByText('Answers can be inaccurate.')).toBeInTheDocument();
+    expect(within(panel).queryByText('Answers can be inaccurate.')).toBeNull();
     expect(window.localStorage.getItem('streamline-assistant-open')).toBe('true');
     expect(mock.current.requestsTo('GET', CONVERSATION_URL)[0]?.params).toEqual({ limit: 30 });
     // The board stays usable next to the panel.
